@@ -36,6 +36,7 @@ var (
 	// ArchAliases common aliases used in release packages
 	ArchAliases map[string][]string = map[string][]string{
 		"x86_64": {"amd64"},
+		"amd64":  {"x86_64"},
 		"arm64":  {"aarch64", "universal"},
 	}
 
