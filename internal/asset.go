@@ -187,6 +187,12 @@ func (a *Asset) clean() error {
 }
 
 func findExecutable(dir string) (string, error) {
+
+	fileTypes := map[string]int{
+		"application/x-mach-binary": 0,
+		"application/x-executable":  0,
+	}
+
 	var executablePath string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -199,7 +205,7 @@ func findExecutable(dir string) (string, error) {
 				return err
 			}
 
-			if ft == "application/x-mach-binary" {
+			if _, ok := fileTypes[ft]; ok {
 				executablePath = path
 				return nil
 			}
