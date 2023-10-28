@@ -64,6 +64,12 @@ func init() {
 
 	HomePath = filepath.Join(home, ".grip")
 
+	// TODO: test on mac
+	sudoUser := os.Getenv("SUDO_USER")
+	if sudoUser != "" {
+		HomePath = strings.Replace(HomePath, "root", sudoUser, -1)
+	}
+
 	// TODO: read install path from config if config file exists
 	InstallPath = filepath.Join(HomePath, "bin")
 	err = os.MkdirAll(InstallPath, 0755)
