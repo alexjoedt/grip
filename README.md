@@ -1,6 +1,7 @@
 # grip 
 
-[![Go](https://github.com/alexjoedt/grip/actions/workflows/go.yml/badge.svg)](https://github.com/alexjoedt/grip/actions/workflows/go.yml)
+[![Build Status](https://img.shields.io/badge/github%2Factions%2Fworkflow%2Fstatus%2Falexjoedt%2Fgrip%2Fgo.yml%3Fstyle%3Dfor-the-badge%26branch%3Dmain?logo=github)](https://github.com/alexjoedt/grip/actions/workflows/go.yml)
+
 
 <p align="center">
   <img alt="Grip Logo" src="assets/grip.png" height="250" />
