@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v56/github"
+	"github.com/k0kubun/go-ansi"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/exp/slices"
 )
@@ -117,7 +118,7 @@ func ParseRepoPath(repo string) (string, string, error) {
 func NewProgressBar(size int, description string) *progressbar.ProgressBar {
 	return progressbar.NewOptions(size,
 		progressbar.OptionFullWidth(),
-		progressbar.OptionSetWriter(os.Stdout),
+		progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
 		progressbar.OptionEnableColorCodes(true),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetDescription(description),
