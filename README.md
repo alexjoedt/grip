@@ -1,6 +1,12 @@
 # grip 
 
-![](assets/grip.png)
+[![Go](https://github.com/alexjoedt/grip/actions/workflows/go.yml/badge.svg)](https://github.com/alexjoedt/grip/actions/workflows/go.yml)
+
+<p align="center">
+  <img alt="Grip Logo" src="assets/grip.png" height="140" />
+  <h3 align="center">grip</h3>
+  <p align="center">Installing effortlessly single-executable releases from GitHub projects </p>
+</p>
 
 GRIP is a simple CLI tool for installing the latest executable releases from GitHub.
 
