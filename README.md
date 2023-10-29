@@ -1,7 +1,8 @@
 # grip 
 
-[![Release](https://img.shields.io/github/release/alexjoedt/grip.svg?style=for-the-badge)](https://github.com/alexjoedt/grip/releases/latest)
-[![Build status](https://img.shields.io/github/actions/workflow/status/alexjoedt/grip/go.yml?style=for-the-badge&branch=main)](https://github.com/alexjoedt/grip/actions?workflow=go)
+![Version](https://img.shields.io/github/v/release/alexjoedt/grip?label=version)
+![Build](https://img.shields.io/github/actions/workflow/status/alexjoedt/grip/release.yml?label=release)
+![Release](https://img.shields.io/github/actions/workflow/status/alexjoedt/grip/build.yml?logo=go)
 
 <p align="center">
   <img alt="Grip Logo" src="assets/grip.png" height="250" />
@@ -9,7 +10,10 @@
   <p align="center">Installing effortlessly single-executable releases from GitHub projects </p>
 </p>
 
-GRIP is a simple CLI tool for installing the latest executable releases from GitHub.
+---
+
+Grip is a CLI tool that downloads and installs single-executable directly from GitHub project releases.
+
 
 For examlpe:
 - github.com/restic/restic
