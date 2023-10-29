@@ -15,15 +15,16 @@ func main() {
 		Usage: "grip [flags] <command>",
 	}
 
-	_, err := install.New(app)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
+	installCommand := install.Command()
+	addCommand(app, installCommand)
 
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 		os.Exit(1)
 	}
 
+}
+
+func addCommand(a *cli.App, cmd *cli.Command) {
+	a.Commands = append(a.Commands, cmd)
 }
