@@ -33,7 +33,7 @@ func Command(app *cli.App) *Config {
 			&cli.BoolFlag{
 				Name:        "force",
 				Aliases:     []string{"f"},
-				Usage:       "uninstalls all executeables installed by grip",
+				Usage:       "forces uninstall without confirmation",
 				Destination: &cfg.Force,
 			},
 		},
