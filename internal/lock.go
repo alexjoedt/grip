@@ -15,8 +15,8 @@ type RepoEntry struct {
 	InstallPath string
 }
 
-func WriteLockFile(filename string, entries []RepoEntry) error {
-	file, err := os.Create(filename)
+func WriteLockFile(entries []RepoEntry) error {
+	file, err := os.Create(Lockfile)
 	if err != nil {
 		return err
 	}
@@ -31,8 +31,8 @@ func WriteLockFile(filename string, entries []RepoEntry) error {
 	return nil
 }
 
-func ReadLockFile(filename string) ([]RepoEntry, error) {
-	file, err := os.Open(filename)
+func ReadLockFile() ([]RepoEntry, error) {
+	file, err := os.Open(Lockfile)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +56,8 @@ func ReadLockFile(filename string) ([]RepoEntry, error) {
 	return entries, scanner.Err()
 }
 
-func GetEntryByRepo(filename string, repo string) (*RepoEntry, error) {
-	entries, err := ReadLockFile(filename)
+func GetEntryByRepo(repo string) (*RepoEntry, error) {
+	entries, err := ReadLockFile()
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +71,8 @@ func GetEntryByRepo(filename string, repo string) (*RepoEntry, error) {
 	return nil, errors.New("no entry found")
 }
 
-func UpdateEntry(filename string, updatedEntry RepoEntry) error {
-	entries, err := ReadLockFile(filename)
+func UpdateEntry(updatedEntry RepoEntry) error {
+	entries, err := ReadLockFile()
 	if err != nil {
 		return err
 	}
@@ -92,11 +92,11 @@ func UpdateEntry(filename string, updatedEntry RepoEntry) error {
 		entries = append(entries, updatedEntry)
 	}
 
-	return WriteLockFile(filename, entries)
+	return WriteLockFile(entries)
 }
 
-func AddEntry(filename string, updatedEntry RepoEntry) error {
-	entries, err := ReadLockFile(filename)
+func AddEntry(updatedEntry RepoEntry) error {
+	entries, err := ReadLockFile()
 	if err != nil {
 		return err
 	}
@@ -115,11 +115,11 @@ func AddEntry(filename string, updatedEntry RepoEntry) error {
 	}
 
 	entries = append(entries, updatedEntry)
-	return WriteLockFile(filename, entries)
+	return WriteLockFile(entries)
 }
 
-func DeleteEntry(filename, repoName string) error {
-	entries, err := ReadLockFile(filename)
+func DeleteEntry(repoName string) error {
+	entries, err := ReadLockFile()
 	if err != nil {
 		return err
 	}
@@ -131,5 +131,5 @@ func DeleteEntry(filename, repoName string) error {
 		}
 	}
 
-	return WriteLockFile(filename, newEntries)
+	return WriteLockFile(newEntries)
 }
