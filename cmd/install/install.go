@@ -73,7 +73,7 @@ func (c *Config) Action(ctx *cli.Context) error {
 		}
 	}
 
-	entry, err := grip.GetEntryByRepo(grip.Lockfile, repo)
+	entry, err := grip.GetEntryByRepo(repo)
 	if nil == err {
 		if entry.Name == name && entry.Repo == repo && !c.Force {
 			return fmt.Errorf("%s version %s is already installed", name, asset.Tag)
@@ -88,7 +88,7 @@ func (c *Config) Action(ctx *cli.Context) error {
 	grip.CheckPathEnv()
 	fmt.Fprintf(os.Stdout, "\n --> %s@%s installed successfully\n", asset.BinaryName(), asset.Tag)
 
-	err = grip.UpdateEntry(grip.Lockfile, grip.RepoEntry{
+	err = grip.UpdateEntry(grip.RepoEntry{
 		Name:        name,
 		Tag:         asset.Tag,
 		Repo:        repo,
