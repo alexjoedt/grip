@@ -14,14 +14,17 @@ type Config struct {
 	Force       bool
 }
 
-func Command() *cli.Command {
-	cfg := &Config{}
-	return &cli.Command{
+func Command(app *cli.App) *Config {
+	cfg := Config{}
+	cmd := &cli.Command{
 		Name:   "install",
 		Usage:  "install an executable from a GitHub release",
-		Flags:  getFlags(cfg),
+		Flags:  getFlags(&cfg),
 		Action: cfg.Action,
 	}
+	app.Commands = append(app.Commands, cmd)
+
+	return &cfg
 }
 
 func getFlags(cfg *Config) []cli.Flag {
