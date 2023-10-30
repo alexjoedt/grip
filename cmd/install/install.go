@@ -3,6 +3,7 @@ package install
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	grip "github.com/alexjoedt/grip/internal"
 	"github.com/urfave/cli/v2"
@@ -81,6 +82,12 @@ func (c *Config) Action(ctx *cli.Context) error {
 		if entry.Name == name && entry.Repo == repo && !c.Force {
 			return fmt.Errorf("%s version %s is already installed", name, asset.Tag)
 		}
+	}
+
+	// dont install, when the project is already installed from
+	// another source
+	if _, err := exec.LookPath(name); err == nil {
+		return fmt.Errorf("%s is already installed from another source", name)
 	}
 
 	err = asset.Install(c.Destination)
