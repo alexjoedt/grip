@@ -31,18 +31,34 @@ func WriteLockFile(entries []RepoEntry) error {
 	return nil
 }
 
-func ReadLockFile() ([]RepoEntry, error) {
+func GetLockFileLines() ([][]string, error) {
 	file, err := os.Open(Lockfile)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	var entries []RepoEntry
+	var entries [][]string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		parts := strings.Fields(scanner.Text())
-		if len(parts) >= 3 {
+		if len(parts) >= 4 {
+			entries = append(entries, parts)
+		}
+	}
+
+	return entries, scanner.Err()
+}
+
+func ReadLockFile() ([]RepoEntry, error) {
+	lines, err := GetLockFileLines()
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []RepoEntry
+	for _, parts := range lines {
+		if len(parts) >= 4 {
 			entry := RepoEntry{
 				Name:        parts[0],
 				Tag:         parts[1],
@@ -53,7 +69,7 @@ func ReadLockFile() ([]RepoEntry, error) {
 		}
 	}
 
-	return entries, scanner.Err()
+	return entries, nil
 }
 
 func GetEntryByRepo(repo string) (*RepoEntry, error) {
