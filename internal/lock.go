@@ -87,6 +87,21 @@ func GetEntryByRepo(repo string) (*RepoEntry, error) {
 	return nil, errors.New("no entry found")
 }
 
+func GetEntryByName(name string) (*RepoEntry, error) {
+	entries, err := ReadLockFile()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.Name == name {
+			return &entry, nil
+		}
+	}
+
+	return nil, errors.New("no entry found")
+}
+
 func UpdateEntry(updatedEntry RepoEntry) error {
 	entries, err := ReadLockFile()
 	if err != nil {
@@ -134,7 +149,7 @@ func AddEntry(updatedEntry RepoEntry) error {
 	return WriteLockFile(entries)
 }
 
-func DeleteEntry(repoName string) error {
+func DeleteEntryByRepo(repo string) error {
 	entries, err := ReadLockFile()
 	if err != nil {
 		return err
@@ -142,7 +157,7 @@ func DeleteEntry(repoName string) error {
 
 	var newEntries []RepoEntry
 	for _, entry := range entries {
-		if entry.Name != repoName {
+		if entry.Repo != repo {
 			newEntries = append(newEntries, entry)
 		}
 	}
