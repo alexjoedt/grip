@@ -145,7 +145,8 @@ func SelfUpdate(version string) error {
 
 	res := semver.Compare(currentVersion, assetVersion)
 	if res >= 0 {
-		return fmt.Errorf("newest version already installed")
+		fmt.Printf("newest version already installed\n")
+		return nil
 	}
 
 	defer func() {
