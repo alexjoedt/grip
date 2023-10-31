@@ -80,7 +80,7 @@ func (c *Config) Action(ctx *cli.Context) error {
 	err = grip.UpdateEntry(grip.RepoEntry{
 		Name:        name,
 		Tag:         asset.Tag,
-		Repo:        repoOwner,
+		Repo:        entry.Repo,
 		InstallPath: entry.InstallPath,
 	})
 	if err != nil {
