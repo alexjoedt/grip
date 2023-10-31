@@ -10,6 +10,9 @@ builds:
   - env:
       - CGO_ENABLED=0
     main: cmd/main.go
+    ldflags:
+      - "-X main.version={{.Version}} -X main.build={{.Commit}} -X main.date={{.Date}}"
+
     goos:
       - linux
       - windows
