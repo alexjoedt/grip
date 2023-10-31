@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   BINARY: grip
+  GRIP_HOME_BIN: ~/.grip/bin
 
 tasks:
   tidy:
@@ -18,6 +19,11 @@ tasks:
     cmds:
       - go mod verify
       - go build -o bin/{{.BINARY}} cmd/main.go
+
+  install:
+    cmds:
+      - task: build
+      - cp bin/{{.BINARY}} {{.GRIP_HOME_BIN}}/{{.BINARY}}
 
   run:
     cmds:
