@@ -13,6 +13,7 @@ type Config struct {
 	Tag         string
 	Destination string
 	Force       bool
+	Alias       string
 }
 
 func Command(app *cli.App) *Config {
@@ -49,6 +50,12 @@ func getFlags(cfg *Config) []cli.Flag {
 			Usage:       "forces the installation",
 			Destination: &cfg.Force,
 		},
+		&cli.StringFlag{
+			Name:        "alias",
+			Aliases:     []string{"a"},
+			Usage:       "alias for the executeable",
+			Destination: &cfg.Alias,
+		},
 	}
 }
 
@@ -75,6 +82,11 @@ func (c *Config) Action(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	if c.Alias != "" {
+		name = c.Alias
+		asset.Alias = c.Alias
 	}
 
 	entry, err := grip.GetEntryByRepo(repo)

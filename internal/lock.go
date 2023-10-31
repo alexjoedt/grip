@@ -111,7 +111,7 @@ func UpdateEntry(updatedEntry RepoEntry) error {
 	// Find and update the entry
 	updated := false
 	for i, entry := range entries {
-		if entry.Repo == updatedEntry.Repo {
+		if entry.Repo == updatedEntry.Repo && entry.Name == updatedEntry.Name {
 			entries[i] = updatedEntry
 			updated = true
 			break
@@ -158,6 +158,22 @@ func DeleteEntryByRepo(repo string) error {
 	var newEntries []RepoEntry
 	for _, entry := range entries {
 		if entry.Repo != repo {
+			newEntries = append(newEntries, entry)
+		}
+	}
+
+	return WriteLockFile(newEntries)
+}
+
+func DeleteEntryByName(name string) error {
+	entries, err := ReadLockFile()
+	if err != nil {
+		return err
+	}
+
+	var newEntries []RepoEntry
+	for _, entry := range entries {
+		if entry.Name != name {
 			newEntries = append(newEntries, entry)
 		}
 	}

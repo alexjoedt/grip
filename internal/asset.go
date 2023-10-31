@@ -15,6 +15,7 @@ import (
 // Asset describes a release asset
 type Asset struct {
 	Name        string
+	Alias       string
 	OS          string
 	Arch        string
 	DownloadURL string
@@ -178,6 +179,9 @@ func (a *Asset) Install(p string) error {
 
 // BinaryName guesses the binary name
 func (a *Asset) BinaryName() string {
+	if a.Alias != "" {
+		return a.Alias
+	}
 	return a.repoName
 }
 

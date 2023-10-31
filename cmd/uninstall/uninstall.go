@@ -83,10 +83,7 @@ func (cfg *Config) Action(cCtx *cli.Context) error {
 		var err error
 
 		if isRepo {
-			entry, err = grip.GetEntryByRepo(arg)
-			if err != nil {
-				return err
-			}
+			return fmt.Errorf("please provide the name or alias for the executeable")
 		} else {
 			entry, err = grip.GetEntryByName(arg)
 			if err != nil {
@@ -105,7 +102,7 @@ func (cfg *Config) Action(cCtx *cli.Context) error {
 			return err
 		}
 
-		err = grip.DeleteEntryByRepo(entry.Repo)
+		err = grip.DeleteEntryByName(entry.Name)
 		if err != nil {
 			return err
 		}
