@@ -19,8 +19,9 @@ var (
 
 func main() {
 	app := &cli.App{
-		Name:  "grip",
-		Usage: "grip [flags] <command>",
+		Name:    "grip",
+		Usage:   "grip [flags] <command>",
+		Version: version,
 	}
 
 	versionCommand(app)
@@ -39,6 +40,7 @@ func main() {
 func versionCommand(app *cli.App) {
 	cmd := &cli.Command{
 		Name:        "version",
+		Usage:       "prints the version of grip",
 		Description: "prints the version of grip",
 		Action: func(ctx *cli.Context) error {
 			fmt.Printf("grip - Installing effortlessly single-executable releases from GitHub projects\n")

@@ -9,11 +9,14 @@ import (
 )
 
 type Config struct {
-	Self bool
+	version string
+	Self    bool
 }
 
 func Command(app *cli.App) *Config {
-	cfg := Config{}
+	cfg := Config{
+		version: app.Version,
+	}
 	cmd := &cli.Command{
 		Name:   "update",
 		Usage:  "updates an executable",
@@ -38,7 +41,7 @@ func getFlags(cfg *Config) []cli.Flag {
 func (c *Config) Action(ctx *cli.Context) error {
 
 	if c.Self {
-		return fmt.Errorf("not implemented")
+		return grip.SelfUpdate(c.version)
 	}
 
 	// TODO: update all installed executables by repo

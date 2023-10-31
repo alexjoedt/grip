@@ -10,13 +10,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexjoedt/grip/internal/semver"
 	"github.com/google/go-github/v56/github"
 	"github.com/k0kubun/go-ansi"
+	"github.com/minio/selfupdate"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/exp/slices"
 )
 
+const (
+	Repository string = "github.com/alexjoedt/grip"
+)
+
 var (
+
 	// HomePath, default: ~/.grip
 	HomePath string = ""
 
@@ -113,6 +120,64 @@ func ParseRepoPath(repo string) (string, string, error) {
 	}
 
 	return parts[1], parts[2], nil
+}
+
+func SelfUpdate(version string) error {
+	currentVersion, err := semver.Parse(version)
+	if err != nil {
+		return err
+	}
+
+	owner, name, err := ParseRepoPath(Repository)
+	if err != nil {
+		return err
+	}
+
+	asset, err := GetLatest(owner, name)
+	if err != nil {
+		return err
+	}
+
+	assetVersion, err := semver.Parse(asset.Tag)
+	if err != nil {
+		return err
+	}
+
+	res := semver.Compare(currentVersion, assetVersion)
+	if res >= 0 {
+		return fmt.Errorf("newest version already installed")
+	}
+
+	defer func() {
+		os.RemoveAll(asset.tempDir)
+	}()
+
+	err = asset.init()
+	if err != nil {
+		return err
+	}
+
+	err = asset.download()
+	if err != nil {
+		return err
+	}
+	err = asset.unpack()
+	if err != nil {
+		return err
+	}
+
+	binPath, err := findExecutable(filepath.Join(asset.tempDir, "unpack"))
+	if err != nil {
+		return err
+	}
+
+	reader, err := os.Open(binPath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	return selfupdate.Apply(reader, selfupdate.Options{})
 }
 
 func NewProgressBar(size int, description string) *progressbar.ProgressBar {
