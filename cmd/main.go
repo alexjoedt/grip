@@ -7,6 +7,7 @@ import (
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
 	"github.com/alexjoedt/grip/cmd/uninstall"
+	"github.com/alexjoedt/grip/cmd/update"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,6 +25,7 @@ func main() {
 
 	versionCommand(app)
 	install.Command(app)
+	update.Command(app)
 	list.Command(app)
 	uninstall.Command(app)
 
