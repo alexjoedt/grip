@@ -87,7 +87,10 @@ func (c *Config) Action(ctx *cli.Context) error {
 	// dont install, when the project is already installed from
 	// another source
 	if _, err := exec.LookPath(name); err == nil {
-		return fmt.Errorf("%s is already installed from another source", name)
+		// there is already a executeable with the same name
+		if entry == nil {
+			return fmt.Errorf("%s is already installed from another source", name)
+		}
 	}
 
 	err = asset.Install(c.Destination)
