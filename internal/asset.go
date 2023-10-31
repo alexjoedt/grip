@@ -252,7 +252,7 @@ func parseAsset(assets []*github.ReleaseAsset) (*Asset, error) {
 
 		name = strings.ToLower(*a.Name)
 
-		if containsCurrentOSAndArch(name) {
+		if containsCurrentOSAndArch(name) && isSupportedExt(name) {
 			url = *a.BrowserDownloadURL
 			found = true
 			break
@@ -294,6 +294,15 @@ func containsCurrentOSAndArch(name string) bool {
 func stringContainsAny(s string, subs ...string) bool {
 	for _, sub := range subs {
 		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedExt(name string) bool {
+	for ext := range unpacker {
+		if strings.HasSuffix(name, ext) {
 			return true
 		}
 	}
