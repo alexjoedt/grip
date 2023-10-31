@@ -44,6 +44,7 @@ var (
 	unpacker map[string]unpackFn = map[string]unpackFn{
 		".tar.gz":  unpackTarGz,
 		".tar.bz2": unpackTarBz2,
+		".tbz":     unpackTarBz2,
 		".zip":     unpackZip,
 		".tar.xz":  unpackTarXz,
 		".bz2":     unpackBz2,
