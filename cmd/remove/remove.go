@@ -21,6 +21,7 @@ func Command(app *cli.App) *Config {
 
 	cmd := &cli.Command{
 		Name:        "remove",
+		Usage:       "removes a installed executable by grip",
 		Description: "removes a installed executable by grip",
 		Action:      cfg.Action,
 		Flags: []cli.Flag{
