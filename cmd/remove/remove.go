@@ -1,4 +1,4 @@
-package uninstall
+package remove
 
 import (
 	"bufio"
@@ -20,20 +20,20 @@ func Command(app *cli.App) *Config {
 	cfg := Config{}
 
 	cmd := &cli.Command{
-		Name:        "uninstall",
-		Description: "uninstalls a installed executable by grip",
+		Name:        "remove",
+		Description: "removes a installed executable by grip",
 		Action:      cfg.Action,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:        "all",
 				Aliases:     []string{"a"},
-				Usage:       "uninstalls all executeables installed by grip",
+				Usage:       "removes all executeables installed by grip",
 				Destination: &cfg.All,
 			},
 			&cli.BoolFlag{
 				Name:        "force",
 				Aliases:     []string{"f"},
-				Usage:       "forces uninstall without confirmation",
+				Usage:       "forces remove without confirmation",
 				Destination: &cfg.Force,
 			},
 		},
