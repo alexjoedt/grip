@@ -178,7 +178,22 @@ func SelfUpdate(version string) error {
 	}
 	defer reader.Close()
 
-	return selfupdate.Apply(reader, selfupdate.Options{})
+	err = selfupdate.Apply(reader, selfupdate.Options{})
+	if err != nil {
+		return err
+	}
+
+	// it could be that grip is in the lockfile
+	entry, err := GetEntryByName(name)
+	if err != nil {
+		// grip isn't in the lockfile, no changes
+		// TODO: only print this with verbose flag
+		fmt.Printf("grip hast no entry in the lockfile")
+	} else {
+		entry.Tag = asset.Tag
+		UpdateEntry(*entry)
+	}
+	return nil
 }
 
 func NewProgressBar(size int, description string) *progressbar.ProgressBar {
