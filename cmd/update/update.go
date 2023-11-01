@@ -10,7 +10,6 @@ import (
 
 type Config struct {
 	version string
-	Self    bool
 }
 
 func Command(app *cli.App) *Config {
@@ -20,29 +19,24 @@ func Command(app *cli.App) *Config {
 	cmd := &cli.Command{
 		Name:   "update",
 		Usage:  "updates an executable",
-		Flags:  getFlags(&cfg),
 		Action: cfg.Action,
 	}
-	app.Commands = append(app.Commands, cmd)
+
+	selfCmd := &cli.Command{
+		Name:  "self-update",
+		Usage: "updates grip",
+	}
+
+	app.Commands = append(app.Commands, cmd, selfCmd)
 
 	return &cfg
 }
 
-func getFlags(cfg *Config) []cli.Flag {
-	return []cli.Flag{
-		&cli.BoolFlag{
-			Name:        "self",
-			Usage:       "self update",
-			Destination: &cfg.Self,
-		},
-	}
+func (c *Config) SelfUpdate(ctx *cli.Context) error {
+	return grip.SelfUpdate(c.version)
 }
 
 func (c *Config) Action(ctx *cli.Context) error {
-
-	if c.Self {
-		return grip.SelfUpdate(c.version)
-	}
 
 	// TODO: update all installed executables by repo
 	name := ctx.Args().Get(0)
