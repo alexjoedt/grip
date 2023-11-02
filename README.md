@@ -5,7 +5,7 @@
 ![Release](https://img.shields.io/github/actions/workflow/status/alexjoedt/grip/build.yml?logo=go)
 
 <p align="center">
-  <img alt="Grip Logo" src="assets/grip.png" height="250" />
+  <img alt="Grip Logo" src="assets/grip.png" height="500" />
   <h3 align="center">grip</h3>
   <p align="center">Installing effortlessly single-executable releases from GitHub projects </p>
 </p>
