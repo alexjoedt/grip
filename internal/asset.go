@@ -27,6 +27,10 @@ type Asset struct {
 
 // init initializes temp dirs
 func (a *Asset) init() error {
+	if a.Name == "" {
+		return errors.New("asset has no name")
+	}
+
 	tempDir, err := os.MkdirTemp(os.TempDir(), a.Name+"*")
 	if err != nil {
 		return err
