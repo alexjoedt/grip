@@ -117,6 +117,14 @@ func (a *Asset) unpack() error {
 
 // install installs the executable
 func (a *Asset) Install(p string) error {
+	if p == "" {
+		return ErrNoInstallPath
+	}
+
+	if !filepath.IsAbs(p) {
+		return ErrNoAbsolutePath
+	}
+
 	defer a.clean()
 	p = strings.TrimSuffix(p, "/")
 
