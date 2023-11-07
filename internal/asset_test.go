@@ -9,16 +9,27 @@ import (
 )
 
 func TestInit(t *testing.T) {
-	testCases := []Asset{
-		{Name: "Test-1"},
-		{Name: ""},
+	testCases := []struct {
+		name string
+		ok   bool
+	}{
+		{name: "Test-1", ok: true},
+		{name: "", ok: false},
 	}
 
-	for _, a := range testCases {
-		assert.NoError(t, a.init())
-		assert.DirExists(t, a.tempDir)
-		assert.DirExists(t, filepath.Join(a.tempDir, "unpack"))
-		assert.DirExists(t, filepath.Join(a.tempDir, "download"))
+	for _, tc := range testCases {
+		a := Asset{
+			Name: tc.name,
+		}
+
+		if tc.ok {
+			assert.NoError(t, a.init())
+			assert.DirExists(t, a.tempDir)
+			assert.DirExists(t, filepath.Join(a.tempDir, "unpack"))
+			assert.DirExists(t, filepath.Join(a.tempDir, "download"))
+		} else {
+			assert.Error(t, a.init())
+		}
 
 		// clean up
 		t.Cleanup(func() {
