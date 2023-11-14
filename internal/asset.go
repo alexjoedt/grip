@@ -114,6 +114,7 @@ func (a *Asset) unpack() error {
 // install installs the executable
 func (a *Asset) Install(p string) error {
 	defer a.clean()
+	p = strings.TrimSuffix(p, "/")
 
 	var err error
 
@@ -169,7 +170,7 @@ func (a *Asset) Install(p string) error {
 
 	fmt.Println()
 
-	err = os.Chmod(destBin, 0744)
+	err = os.Chmod(destBin, 0755)
 	if err != nil {
 		return err
 	}
