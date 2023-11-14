@@ -170,7 +170,7 @@ func (a *Asset) Install(p string) error {
 
 	fmt.Println()
 
-	err = os.Chmod(destBin, 0744)
+	err = os.Chmod(destBin, 0755)
 	if err != nil {
 		return err
 	}
