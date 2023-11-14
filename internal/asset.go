@@ -114,6 +114,7 @@ func (a *Asset) unpack() error {
 // install installs the executable
 func (a *Asset) Install(p string) error {
 	defer a.clean()
+	p = strings.TrimSuffix(p, "/")
 
 	var err error
 
