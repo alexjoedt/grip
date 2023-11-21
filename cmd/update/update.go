@@ -25,6 +25,7 @@ func Command(app *cli.App) *Config {
 	selfCmd := &cli.Command{
 		Name:  "self-update",
 		Usage: "updates grip",
+		Action: cfg.SelfUpdate,
 	}
 
 	app.Commands = append(app.Commands, cmd, selfCmd)
