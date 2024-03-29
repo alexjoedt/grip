@@ -288,8 +288,8 @@ func getUnpackFn(name string) (string, unpackFn, error) {
 
 // containsCurrentOSAndArch checks the filename for OS and Arch
 func containsCurrentOSAndArch(name string) bool {
-	if stringContainsAny(name, append(OSAliases[currentOS], currentOS)...) &&
-		stringContainsAny(name, append(ArchAliases[currentArch], currentArch)...) {
+	if stringContainsAny(name, append(osAliases[currentOS], currentOS)...) &&
+		stringContainsAny(name, append(archAliases[currentArch], currentArch)...) {
 		return true
 	}
 	return false

@@ -19,13 +19,13 @@ import (
 )
 
 const (
-	Repository string = "github.com/alexjoedt/grip"
+	repository string = "github.com/alexjoedt/grip"
 )
 
 var (
 
-	// HomePath, default: ~/.grip
-	HomePath string = ""
+	// homePath, default: ~/.grip
+	homePath string = ""
 
 	// InstallPath is the path where the executables will be installed.
 	// Must be in PATH
@@ -35,14 +35,14 @@ var (
 	currentOS   string = runtime.GOOS
 	currentArch string = runtime.GOARCH
 
-	// OSAliases common aliases used in release packages
-	OSAliases map[string][]string = map[string][]string{
+	// osAliases common aliases used in release packages
+	osAliases map[string][]string = map[string][]string{
 		"darwin": {"macos"},
 		"linux":  {"musl"},
 	}
 
-	// ArchAliases common aliases used in release packages
-	ArchAliases map[string][]string = map[string][]string{
+	// archAliases common aliases used in release packages
+	archAliases map[string][]string = map[string][]string{
 		"amd64": {"x86_64"},
 		"arm64": {"aarch64", "universal"},
 	}
@@ -70,21 +70,21 @@ func init() {
 		log.Fatal("no user home dir, please provide a install path")
 	}
 
-	HomePath = filepath.Join(home, ".grip")
+	homePath = filepath.Join(home, ".grip")
 
 	sudoUser := os.Getenv("SUDO_USER")
 	if sudoUser != "" && currentOS == "linux" {
-		HomePath = filepath.Join("/home", sudoUser, ".grip")
+		homePath = filepath.Join("/home", sudoUser, ".grip")
 	}
 
 	// TODO: read install path from config if config file exists
-	InstallPath = filepath.Join(HomePath, "bin")
+	InstallPath = filepath.Join(homePath, "bin")
 	err = os.MkdirAll(InstallPath, 0755)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	Lockfile = filepath.Join(HomePath, "grip.lock")
+	Lockfile = filepath.Join(homePath, "grip.lock")
 	_, err = os.Stat(Lockfile)
 	if err != nil {
 		_, err = os.Create(Lockfile)
@@ -127,7 +127,7 @@ func SelfUpdate(version string) error {
 		return err
 	}
 
-	owner, name, err := ParseRepoPath(Repository)
+	owner, name, err := ParseRepoPath(repository)
 	if err != nil {
 		return err
 	}
