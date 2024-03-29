@@ -27,6 +27,10 @@ type Asset struct {
 
 // init initializes temp dirs
 func (a *Asset) init() error {
+	if a.Name == "" {
+		return errors.New("asset has no name")
+	}
+
 	tempDir, err := os.MkdirTemp(os.TempDir(), a.Name+"*")
 	if err != nil {
 		return err
@@ -113,6 +117,14 @@ func (a *Asset) unpack() error {
 
 // install installs the executable
 func (a *Asset) Install(p string) error {
+	if p == "" {
+		return ErrNoInstallPath
+	}
+
+	if !filepath.IsAbs(p) {
+		return ErrNoAbsolutePath
+	}
+
 	defer a.clean()
 	p = strings.TrimSuffix(p, "/")
 
