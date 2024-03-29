@@ -83,7 +83,7 @@ func (cfg *Config) Action(cCtx *cli.Context) error {
 
 	} else {
 
-		entries, err := grip.ReadLockFile()
+		entries, err := grip.GetAllEntries()
 		if err != nil {
 			return err
 		}

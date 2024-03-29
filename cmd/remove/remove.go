@@ -54,7 +54,7 @@ func (cfg *Config) Action(cCtx *cli.Context) error {
 			}
 		}
 
-		entries, err := grip.ReadLockFile()
+		entries, err := grip.GetAllEntries()
 		if err != nil {
 			return err
 		}
