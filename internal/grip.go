@@ -23,7 +23,6 @@ const (
 )
 
 var (
-
 	// homePath, default: ~/.grip
 	homePath string = ""
 
@@ -87,10 +86,10 @@ func init() {
 		fmt.Println(err)
 	}
 
-	Lockfile = filepath.Join(homePath, "grip.lock")
-	_, err = os.Stat(Lockfile)
+	lockFilepath = filepath.Join(homePath, "grip.lock")
+	_, err = os.Stat(lockFilepath)
 	if err != nil {
-		_, err = os.Create(Lockfile)
+		_, err = os.Create(lockFilepath)
 		if err != nil {
 			fmt.Printf("failed to create grip.lock\n")
 		}
