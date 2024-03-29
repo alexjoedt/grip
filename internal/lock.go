@@ -16,7 +16,7 @@ type RepoEntry struct {
 }
 
 func WriteLockFile(entries []RepoEntry) error {
-	file, err := os.Create(Lockfile)
+	file, err := os.Create(lockFilepath)
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func WriteLockFile(entries []RepoEntry) error {
 }
 
 func GetLockFileLines() ([][]string, error) {
-	file, err := os.Open(Lockfile)
+	file, err := os.Open(lockFilepath)
 	if err != nil {
 		return nil, err
 	}

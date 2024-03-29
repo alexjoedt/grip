@@ -30,7 +30,10 @@ var (
 	// InstallPath is the path where the executables will be installed.
 	// Must be in PATH
 	InstallPath string = ""
-	Lockfile    string = ""
+
+	// lockFilepath holds the path to the lock file, where all installed executables
+	// are indexed. The path will be determined in the init function.
+	lockFilepath string = ""
 
 	currentOS   string = runtime.GOOS
 	currentArch string = runtime.GOARCH
