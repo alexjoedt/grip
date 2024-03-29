@@ -51,7 +51,7 @@ The asset's filename must contain both the architecture and the operating system
 
 ## Disclaimer
 
-This tool is early stage. It might have issues, and some features like updating or uninstalling are not there yet. 
+This tool is early stage. It might have issues, and some features are not there yet.
 I made this tool because I wanted an easy way to install CLI tools like restic, exa and more on my Linux and macOS computers directly from the project's website. Please be patient with its limits.
 
 ## Contributions
