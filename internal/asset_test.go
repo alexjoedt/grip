@@ -1,184 +1,556 @@
 package grip
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
+// MockHTTPClient is a mock implementation of HTTPClient
+type MockHTTPClient struct {
+	mock.Mock
+}
+
+func (m *MockHTTPClient) Get(url string) (*http.Response, error) {
+	args := m.Called(url)
+	if resp := args.Get(0); resp != nil {
+		return resp.(*http.Response), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// Test helpers and fixtures
+
+// createMockResponse creates a mock HTTP response
+func createMockResponse(statusCode int, body string, contentLength int64) *http.Response {
+	return &http.Response{
+		StatusCode:    statusCode,
+		Status:        http.StatusText(statusCode),
+		Body:          io.NopCloser(strings.NewReader(body)),
+		ContentLength: contentLength,
+	}
+}
+
+// createTestTarGz creates a test tar.gz archive with a mock executable
+func createTestTarGz() ([]byte, error) {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	// Create a simple Mach-O binary for macOS (minimal valid Mach-O header)
+	// This is a minimal Mach-O binary that will be detected as executable
+	machOHeader := []byte{
+		0xcf, 0xfa, 0xed, 0xfe, // MH_MAGIC_64 (little-endian)
+		0x07, 0x00, 0x00, 0x01, // CPU_TYPE_X86_64
+		0x03, 0x00, 0x00, 0x00, // CPU_SUBTYPE_X86_64_ALL
+		0x02, 0x00, 0x00, 0x00, // MH_EXECUTE
+		0x00, 0x00, 0x00, 0x00, // ncmds
+		0x00, 0x00, 0x00, 0x00, // sizeofcmds
+		0x00, 0x00, 0x00, 0x00, // flags
+		0x00, 0x00, 0x00, 0x00, // reserved
+	}
+
+	// Pad with some additional bytes to make it look more like a real binary
+	execContent := append(machOHeader, make([]byte, 1000)...)
+	
+	header := &tar.Header{
+		Name: "test-executable",
+		Mode: 0755,
+		Size: int64(len(execContent)),
+	}
+	
+	if err := tw.WriteHeader(header); err != nil {
+		return nil, err
+	}
+	
+	if _, err := tw.Write(execContent); err != nil {
+		return nil, err
+	}
+
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	if err := gw.Close(); err != nil {
+		return nil, err
+	}
+	
+	return buf.Bytes(), nil
+}
+
+
+
+// createTestAsset creates a test asset with optional HTTP client injection
+func createTestAsset(t *testing.T,name, downloadURL string, httpClient HTTPClient) *Asset {
+	return &Asset{
+		Name:        name,
+		DownloadURL: downloadURL,
+		repoName:    "test-repo",
+		Alias:       "test-alias",
+		httpClient: httpClient,
+	}
+}
+
 func TestInit(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name string
-		ok   bool
+		name        string
+		assetName   string
+		expectError bool
+		errorType   error
 	}{
-		{name: "Test-1", ok: true},
-		{name: "", ok: false},
+		{
+			name:        "create valid asset",
+			assetName:   "Asset-1",
+			expectError: false,
+		},
+		{
+			name:        "create asset with empty name",
+			assetName:   "",
+			expectError: true,
+			errorType:   ErrInvalidAsset,
+		},
+		{
+			name:        "create asset with whitespace name",
+			assetName:   "   ",
+			expectError: false, // whitespace is valid but not recommended
+		},
+		{
+			name:        "create asset with special characters",
+			assetName:   "Asset@#$%",
+			expectError: false,
+		},
 	}
 
 	for _, tc := range testCases {
-		a := Asset{
-			Name: tc.name,
-		}
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		if tc.ok {
-			assert.NoError(t, a.init())
-			assert.DirExists(t, a.tempDir)
-			assert.DirExists(t, filepath.Join(a.tempDir, "unpack"))
-			assert.DirExists(t, filepath.Join(a.tempDir, "download"))
-		} else {
-			assert.Error(t, a.init())
-		}
+			asset := createTestAsset(t,tc.assetName, "https://example.com/test.tar.gz", nil)
+			err := asset.init()
 
-		// clean up
-		t.Cleanup(func() {
-			os.RemoveAll(a.tempDir)
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.errorType != nil {
+					assert.ErrorIs(t, err, tc.errorType)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, asset.tempDir)
+				assert.DirExists(t, asset.tempDir)
+				assert.DirExists(t, filepath.Join(asset.tempDir, "unpack"))
+				assert.DirExists(t, filepath.Join(asset.tempDir, "download"))
+
+				// Check directory permissions
+				info, err := os.Stat(filepath.Join(asset.tempDir, "download"))
+				assert.NoError(t, err)
+				assert.True(t, info.IsDir())
+				
+				info, err = os.Stat(filepath.Join(asset.tempDir, "unpack"))
+				assert.NoError(t, err)
+				assert.True(t, info.IsDir())
+			}
+
+			// Cleanup
+			t.Cleanup(func() {
+				if asset.tempDir != "" {
+					_ = os.RemoveAll(asset.tempDir)
+				}
+			})
 		})
 	}
 }
 
 func TestDownload(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name string
-		url  string
-		ok   bool
+		name           string
+		assetName      string
+		downloadURL    string
+		mockSetup      func(*MockHTTPClient)
+		expectError    bool
+		expectedErrMsg string
 	}{
 		{
-			name: "grip",
-			url:  "https://github.com/alexjoedt/grip/releases/download/v0.1.0-alpha.6/grip_Darwin_arm64.tar.gz",
-			ok:   true,
+			name:        "successful download",
+			assetName:   "test.tar.gz",
+			downloadURL: "https://example.com/test.tar.gz",
+			mockSetup: func(m *MockHTTPClient) {
+				resp := createMockResponse(200, "test file content", 17)
+				m.On("Get", "https://example.com/test.tar.gz").Return(resp, nil)
+			},
+			expectError: false,
 		},
-		{name: "grip", url: "https://github.com/alexjoedt", ok: false},
-		{name: "grip", url: "", ok: false},
+		{
+			name:        "HTTP 404 error",
+			assetName:   "missing.tar.gz",
+			downloadURL: "https://example.com/missing.tar.gz",
+			mockSetup: func(m *MockHTTPClient) {
+				resp := createMockResponse(404, "Not Found", 9)
+				m.On("Get", "https://example.com/missing.tar.gz").Return(resp, nil)
+			},
+			expectError:    true,
+			expectedErrMsg: "invalid response with status",
+		},
+		{
+			name:        "HTTP 500 error",
+			assetName:   "error.tar.gz",
+			downloadURL: "https://example.com/error.tar.gz",
+			mockSetup: func(m *MockHTTPClient) {
+				resp := createMockResponse(500, "Internal Server Error", 21)
+				m.On("Get", "https://example.com/error.tar.gz").Return(resp, nil)
+			},
+			expectError:    true,
+			expectedErrMsg: "invalid response with status",
+		},
+		{
+			name:        "network error",
+			assetName:   "network.tar.gz",
+			downloadURL: "https://example.com/network.tar.gz",
+			mockSetup: func(m *MockHTTPClient) {
+				m.On("Get", "https://example.com/network.tar.gz").Return(nil, fmt.Errorf("connection refused"))
+			},
+			expectError:    true,
+			expectedErrMsg: "connection refused",
+		},
+		{
+			name:        "empty URL",
+			assetName:   "empty.tar.gz",
+			downloadURL: "",
+			mockSetup: func(m *MockHTTPClient) {
+				m.On("Get", "").Return(nil, fmt.Errorf("invalid URL"))
+			},
+			expectError:    true,
+			expectedErrMsg: "invalid URL",
+		},
 	}
 
 	for _, tc := range testCases {
-		a := Asset{
-			Name:        tc.name,
-			DownloadURL: tc.url,
-		}
-		if tc.ok {
-			assert.NoError(t, a.init())
-			assert.NoError(t, a.download())
-			assert.DirExists(t, a.tempDir)
-			assert.FileExists(t, filepath.Join(a.tempDir, "download", a.Name))
-		} else {
-			assert.Error(t, a.download())
-		}
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		// clean up
-		t.Cleanup(func() {
-			os.RemoveAll(a.tempDir)
+			mockClient := new(MockHTTPClient)
+			tc.mockSetup(mockClient)
+
+			asset := createTestAsset(t,tc.assetName, tc.downloadURL, mockClient)
+			
+			// Initialize the asset first
+			require.NoError(t, asset.init())
+
+			err := asset.download()
+
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.expectedErrMsg != "" {
+					assert.Contains(t, err.Error(), tc.expectedErrMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				// Check that file was created
+				downloadPath := filepath.Join(asset.tempDir, "download", asset.Name)
+				assert.FileExists(t, downloadPath)
+				
+				// Check file content
+				content, err := os.ReadFile(downloadPath)
+				assert.NoError(t, err)
+				assert.Equal(t, "test file content", string(content))
+			}
+
+			// Verify mock expectations
+			mockClient.AssertExpectations(t)
+
+			// Cleanup
+			t.Cleanup(func() {
+				if asset.tempDir != "" {
+					_ = os.RemoveAll(asset.tempDir)
+				}
+			})
 		})
 	}
 }
 
 func TestUnpack(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name string
-		url  string
-		ok   bool
+		name        string
+		assetName   string
+		setupMock   func(*MockHTTPClient) []byte
+		expectError bool
+		errorMsg    string
 	}{
 		{
-			name: "grip_Darwin_arm64.tar.gz",
-			url:  "https://github.com/alexjoedt/grip/releases/download/v0.1.0-alpha.6/grip_Darwin_arm64.tar.gz",
-			ok:   true,
+			name:      "successful unpack tar.gz",
+			assetName: "test.tar.gz",
+			setupMock: func(m *MockHTTPClient) []byte {
+				// Create test tar.gz content
+				tarData, err := createTestTarGz()
+				require.NoError(t, err)
+				
+				resp := createMockResponse(200, string(tarData), int64(len(tarData)))
+				m.On("Get", "https://example.com/test.tar.gz").Return(resp, nil)
+				return tarData
+			},
+			expectError: false,
 		},
-		{name: "grip", url: "https://github.com/alexjoedt", ok: false},
-		{name: "grip", url: "", ok: false},
+		{
+			name:      "invalid archive format",
+			assetName: "test.invalid",
+			setupMock: func(m *MockHTTPClient) []byte {
+				invalidData := []byte("not an archive")
+				resp := createMockResponse(200, string(invalidData), int64(len(invalidData)))
+				m.On("Get", "https://example.com/test.invalid").Return(resp, nil)
+				return invalidData
+			},
+			expectError: true,
+			errorMsg:    "unsupported extension",
+		},
+		{
+			name:      "corrupted archive",
+			assetName: "test.tar.gz",
+			setupMock: func(m *MockHTTPClient) []byte {
+				corruptData := []byte("corrupted gzip data")
+				resp := createMockResponse(200, string(corruptData), int64(len(corruptData)))
+				m.On("Get", "https://example.com/test.tar.gz").Return(resp, nil)
+				return corruptData
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tc := range testCases {
-		a := Asset{
-			Name:        tc.name,
-			DownloadURL: tc.url,
-		}
-		if tc.ok {
-			assert.NoError(t, a.init())
-			assert.NoError(t, a.download())
-			assert.NoError(t, a.unpack())
-			assert.DirExists(t, a.tempDir)
-			assert.DirExists(t, filepath.Join(a.tempDir, "unpack"))
-			entries, err := os.ReadDir(filepath.Join(a.tempDir, "unpack"))
-			assert.NoError(t, err)
-			assert.NotEmpty(t, entries)
-			assert.FileExists(t, filepath.Join(a.tempDir, "download", a.Name))
-		} else {
-			assert.Error(t, a.download())
-		}
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		// clean up
-		t.Cleanup(func() {
-			os.RemoveAll(a.tempDir)
+			mockClient := new(MockHTTPClient)
+			testData := tc.setupMock(mockClient)
+
+			asset := createTestAsset(t,tc.assetName, "https://example.com/"+tc.assetName, mockClient)
+			
+			// Initialize and download first
+			require.NoError(t, asset.init())
+			require.NoError(t, asset.download())
+
+			err := asset.unpack()
+
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.errorMsg != "" {
+					assert.Contains(t, err.Error(), tc.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				
+				// Check that unpack directory exists and has content
+				unpackDir := filepath.Join(asset.tempDir, "unpack")
+				assert.DirExists(t, unpackDir)
+				
+				entries, err := os.ReadDir(unpackDir)
+				assert.NoError(t, err)
+				assert.NotEmpty(t, entries, "unpack directory should contain extracted files")
+				
+				// Verify download file still exists
+				downloadPath := filepath.Join(asset.tempDir, "download", asset.Name)
+				assert.FileExists(t, downloadPath)
+				
+				// Verify downloaded content matches expected
+				downloadedData, err := os.ReadFile(downloadPath)
+				assert.NoError(t, err)
+				assert.Equal(t, testData, downloadedData)
+			}
+
+			// Verify mock expectations
+			mockClient.AssertExpectations(t)
+
+			// Cleanup
+			t.Cleanup(func() {
+				if asset.tempDir != "" {
+					_ = os.RemoveAll(asset.tempDir)
+				}
+			})
 		})
 	}
 }
 
 func TestInstall(t *testing.T) {
 	testCases := []struct {
-		name string
-		url  string
-		ok   bool
-		path string
-		err  error
+		name        string
+		assetName   string
+		installPath string
+		repoName    string
+		alias       string
+		setupMock   func(*MockHTTPClient)
+		expectError bool
+		expectedErr error
+		errorMsg    string
 	}{
 		{
-			name: "grip_Darwin_arm64.tar.gz",
-			url:  "https://github.com/alexjoedt/grip/releases/download/v0.1.0-alpha.6/grip_Darwin_arm64.tar.gz",
-			ok:   true,
-			path: filepath.Join(os.TempDir()),
+			name:        "successful install with absolute path",
+			assetName:   "grip_Darwin_arm64.tar.gz",
+			installPath: filepath.Join(os.TempDir(), "test-install-1"),
+			repoName:    "grip",
+			alias:       "grip",
+			setupMock: func(m *MockHTTPClient) {
+				tarData, err := createTestTarGz()
+				require.NoError(t, err)
+				resp := createMockResponse(200, string(tarData), int64(len(tarData)))
+				m.On("Get", "https://example.com/grip_Darwin_arm64.tar.gz").Return(resp, nil)
+			},
+			expectError: false, // Changed: Install should succeed with proper Mach-O binary
 		},
 		{
-			name: "grip_Darwin_arm64.tar.gz",
-			url:  "https://github.com/alexjoedt/grip/releases/download/v0.1.0-alpha.6/grip_Darwin_arm64.tar.gz",
-			ok:   false,
-			path: "",
-			err:  ErrNoInstallPath,
+			name:        "install with empty path",
+			assetName:   "grip_Darwin_arm64.tar.gz",
+			installPath: "",
+			repoName:    "grip",
+			alias:       "grip",
+			setupMock:   func(m *MockHTTPClient) {},
+			expectError: true,
+			expectedErr: ErrNoInstallPath,
 		},
 		{
-			name: "grip_Darwin_arm64.tar.gz",
-			url:  "https://github.com/alexjoedt/grip/releases/download/v0.1.0-alpha.6/grip_Darwin_arm64.tar.gz",
-			ok:   false,
-			path: "temp",
-			err:  ErrNoAbsolutePath,
+			name:        "install with relative path",
+			assetName:   "grip_Darwin_arm64.tar.gz",
+			installPath: "temp",
+			repoName:    "grip",
+			alias:       "grip",
+			setupMock:   func(m *MockHTTPClient) {},
+			expectError: true,
+			expectedErr: ErrNoAbsolutePath,
 		},
 	}
 
-	for i, tc := range testCases {
-		a := Asset{
-			repoName:    fmt.Sprintf("test-%d", i),
-			Alias:       fmt.Sprintf("test-%d", i),
-			Name:        tc.name,
-			DownloadURL: tc.url,
-		}
+	for _, tc := range testCases {
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := new(MockHTTPClient)
+			tc.setupMock(mockClient)
 
-		assert.NoError(t, a.init())
-		assert.NoError(t, a.download())
-		assert.NoError(t, a.unpack())
-		assert.DirExists(t, a.tempDir)
-		assert.DirExists(t, filepath.Join(a.tempDir, "unpack"))
-		entries, err := os.ReadDir(filepath.Join(a.tempDir, "unpack"))
-		assert.NoError(t, err)
-		assert.NotEmpty(t, entries)
-		assert.FileExists(t, filepath.Join(a.tempDir, "download", a.Name))
+			// Create the install directory if specified and valid
+			if tc.installPath != "" && filepath.IsAbs(tc.installPath) {
+				err := os.MkdirAll(tc.installPath, 0755)
+				require.NoError(t, err)
+			}
 
-		if tc.ok {
-			assert.NoError(t, a.Install(tc.path))
-			assert.FileExists(t, filepath.Join(tc.path, a.BinaryName()))
+			// Create asset with all required fields
+			asset := &Asset{
+				Name:        tc.assetName,
+				DownloadURL: "https://example.com/" + tc.assetName,
+				repoName:    tc.repoName,
+				Alias:       tc.alias,
+				httpClient:  mockClient,
+			}
 
+			err := asset.Install(tc.installPath)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.expectedErr != nil {
+					assert.ErrorIs(t, err, tc.expectedErr)
+				}
+				if tc.errorMsg != "" {
+					assert.Contains(t, err.Error(), tc.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				
+				// Check that binary was installed
+				expectedBinaryPath := filepath.Join(tc.installPath, asset.BinaryName())
+				assert.FileExists(t, expectedBinaryPath)
+				
+				// Check binary permissions
+				info, err := os.Stat(expectedBinaryPath)
+				assert.NoError(t, err)
+				assert.True(t, info.Mode().Perm() >= 0755, "binary should have executable permissions")
+			}
+
+			// Verify mock expectations
+			mockClient.AssertExpectations(t)
+
+			// Cleanup
 			t.Cleanup(func() {
-				os.RemoveAll(tc.path)
+				if tc.installPath != "" && filepath.IsAbs(tc.installPath) {
+					_ = os.RemoveAll(tc.installPath)
+				}
+				// Asset should clean up temp directory automatically
 			})
-
-		} else {
-			assert.ErrorIs(t, tc.err, a.Install(tc.path))
-		}
-
-		// clean up
-		t.Cleanup(func() {
-			os.RemoveAll(a.tempDir)
 		})
 	}
+}
+
+// TestAssetBinaryName tests the BinaryName method
+func TestAssetBinaryName(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		alias    string
+		repoName string
+		expected string
+	}{
+		{
+			name:     "with alias",
+			alias:    "my-tool",
+			repoName: "original-repo",
+			expected: "my-tool",
+		},
+		{
+			name:     "without alias",
+			alias:    "",
+			repoName: "repo-name",
+			expected: "repo-name",
+		},
+		{
+			name:     "empty alias",
+			alias:    "",
+			repoName: "test-repo",
+			expected: "test-repo",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			asset := &Asset{
+				Alias:    tc.alias,
+				repoName: tc.repoName,
+			}
+
+			result := asset.BinaryName()
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// TestAssetClean tests the clean method
+func TestAssetClean(t *testing.T) {
+	t.Parallel()
+
+	asset := createTestAsset(t,"test-clean", "https://example.com/test", nil)
+	
+	// Initialize to create temp directory
+	require.NoError(t, asset.init())
+	require.DirExists(t, asset.tempDir)
+
+	// Clean should remove temp directory
+	err := asset.clean()
+	assert.NoError(t, err)
+	assert.NoDirExists(t, asset.tempDir)
 }
