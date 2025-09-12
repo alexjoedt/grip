@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-github/v56/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -553,4 +554,125 @@ func TestAssetClean(t *testing.T) {
 	err := asset.clean()
 	assert.NoError(t, err)
 	assert.NoDirExists(t, asset.tempDir)
+}
+
+// TestParseAsset tests the parseAsset function
+func TestParseAsset(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		assets      []*github.ReleaseAsset
+		expectError bool
+		errorMsg    string
+		expectedOS  string
+		expectedArch string
+	}{
+		{
+			name: "successful parsing with matching asset",
+			assets: []*github.ReleaseAsset{
+				{
+					Name:               stringPtr("tool_windows_amd64.zip"),
+					BrowserDownloadURL: stringPtr("https://example.com/tool_windows_amd64.zip"),
+				},
+				{
+					Name:               stringPtr(fmt.Sprintf("tool_%s_%s.tar.gz", currentOS, currentArch)),
+					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_%s.tar.gz", currentOS, currentArch)),
+				},
+				{
+					Name:               stringPtr("tool_linux_arm64.tar.gz"),
+					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
+				},
+			},
+			expectError:  false,
+			expectedOS:   currentOS,
+			expectedArch: currentArch,
+		},
+		{
+			name: "no matching asset for current OS/Arch",
+			assets: []*github.ReleaseAsset{
+				{
+					Name:               stringPtr("tool_windows_amd64.zip"),
+					BrowserDownloadURL: stringPtr("https://example.com/tool_windows_amd64.zip"),
+				},
+				{
+					Name:               stringPtr("tool_linux_arm64.tar.gz"),
+					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
+				},
+			},
+			expectError: true,
+			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
+		},
+		{
+			name: "asset with unsupported extension",
+			assets: []*github.ReleaseAsset{
+				{
+					Name:               stringPtr(fmt.Sprintf("tool_%s_%s.exe", currentOS, currentArch)),
+					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_%s.exe", currentOS, currentArch)),
+				},
+			},
+			expectError: true,
+			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
+		},
+		{
+			name: "matching asset with OS alias",
+			assets: []*github.ReleaseAsset{
+				{
+					Name:               stringPtr("tool_macos_arm64.tar.gz"), // macos is alias for darwin
+					BrowserDownloadURL: stringPtr("https://example.com/tool_macos_arm64.tar.gz"),
+				},
+			},
+			expectError:  currentOS != "darwin", // Should only work on darwin systems
+			expectedOS:   currentOS,
+			expectedArch: currentArch,
+		},
+		{
+			name: "matching asset with arch alias",
+			assets: []*github.ReleaseAsset{
+				{
+					Name:               stringPtr(fmt.Sprintf("tool_%s_x86_64.tar.gz", currentOS)), // x86_64 is alias for amd64
+					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_x86_64.tar.gz", currentOS)),
+				},
+			},
+			expectError:  currentArch != "amd64", // Should only work on amd64 systems
+			expectedOS:   currentOS,
+			expectedArch: currentArch,
+		},
+		{
+			name:        "empty asset list",
+			assets:      []*github.ReleaseAsset{},
+			expectError: true,
+			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			asset, err := parseAsset(tc.assets)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.errorMsg != "" {
+					assert.Contains(t, err.Error(), tc.errorMsg)
+				}
+				assert.Nil(t, asset)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, asset)
+				assert.Equal(t, tc.expectedOS, asset.OS)
+				assert.Equal(t, tc.expectedArch, asset.Arch)
+				assert.NotEmpty(t, asset.Name)
+				assert.NotEmpty(t, asset.DownloadURL)
+				assert.True(t, strings.HasPrefix(asset.DownloadURL, "https://"))
+			}
+		})
+	}
+}
+
+// stringPtr is a helper function to create string pointers for test data
+func stringPtr(s string) *string {
+	return &s
 }
