@@ -2,7 +2,6 @@ package grip
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/alexjoedt/grip/internal/semver"
 	"github.com/google/go-github/v56/github"
 	"github.com/k0kubun/go-ansi"
@@ -69,7 +69,7 @@ var (
 func init() {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal("no user home dir, please provide a install path")
+		logger.Fatal("No user home dir, please provide an install path")
 	}
 
 	homePath = filepath.Join(home, ".grip")
@@ -83,7 +83,7 @@ func init() {
 	InstallPath = filepath.Join(homePath, "bin")
 	err = os.MkdirAll(InstallPath, 0755)
 	if err != nil {
-		fmt.Println(err)
+		logger.Error("Failed to create install path: %v", err)
 	}
 
 	lockFilepath = filepath.Join(homePath, "grip.lock")
@@ -91,7 +91,7 @@ func init() {
 	if err != nil {
 		_, err = os.Create(lockFilepath)
 		if err != nil {
-			fmt.Printf("failed to create grip.lock\n")
+			logger.Error("Failed to create grip.lock: %v", err)
 		}
 	}
 
@@ -105,7 +105,7 @@ func CheckPathEnv() {
 	pathEnv := os.Getenv("PATH")
 	parts := filepath.SplitList(pathEnv)
 	if !slices.Contains(parts, InstallPath) {
-		fmt.Printf("WARN: the grip path '%s' isn't in PATH\n", InstallPath)
+		logger.Warn("The grip path '%s' isn't in PATH", InstallPath)
 	}
 }
 
@@ -146,7 +146,7 @@ func SelfUpdate(version string) error {
 
 	res := semver.Compare(currentVersion, assetVersion)
 	if res >= 0 {
-		fmt.Printf("newest version already installed\n")
+		logger.Info("Newest version already installed")
 		return nil
 	}
 
@@ -188,8 +188,7 @@ func SelfUpdate(version string) error {
 	entry, err := GetEntryByName(name)
 	if err != nil {
 		// grip isn't in the lockfile, no changes
-		// TODO: only print this with verbose flag
-		fmt.Printf("grip hast no entry in the lockfile")
+		logger.Info("Grip has no entry in the lockfile")
 	} else {
 		entry.Tag = asset.Tag
 		UpdateEntry(*entry)

@@ -2,9 +2,9 @@ package update
 
 import (
 	"fmt"
-	"os"
 
 	grip "github.com/alexjoedt/grip/internal"
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/urfave/cli/v2"
 )
 
@@ -70,7 +70,7 @@ func (c *Config) Action(ctx *cli.Context) error {
 	}
 
 	grip.CheckPathEnv()
-	fmt.Fprintf(os.Stdout, "\n --> %s updated successfully from %s to %s\n", asset.BinaryName(), entry.Tag, asset.Tag)
+	logger.Success("%s updated successfully from %s to %s", asset.BinaryName(), entry.Tag, asset.Tag)
 
 	err = grip.UpdateEntry(grip.RepoEntry{
 		Name:        name,

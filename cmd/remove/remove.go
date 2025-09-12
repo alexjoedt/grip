@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	grip "github.com/alexjoedt/grip/internal"
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/urfave/cli/v2"
 )
 
@@ -64,13 +65,13 @@ func (cfg *Config) Action(cCtx *cli.Context) error {
 			if _, err := os.Stat(p); err == nil {
 				err := os.Remove(p)
 				if err != nil {
-					fmt.Printf("failed to remove: %s\n", p)
+					logger.Error("Failed to remove: %s", p)
 				} else {
 					err := grip.DeleteEntryByRepo(e.Repo)
 					if err != nil {
 						return err
 					}
-					fmt.Printf("Removed: %s\n", p)
+					logger.Success("Removed: %s", p)
 				}
 			}
 		}
@@ -115,11 +116,11 @@ func (cfg *Config) Action(cCtx *cli.Context) error {
 
 func askForContinue() bool {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("Are you sure you want to continue? [y/N]: ")
+	logger.Print("Are you sure you want to continue? [y/N]: ")
 
 	input, err := reader.ReadString('\n')
 	if err != nil {
-		fmt.Println("Error reading input:", err)
+		logger.Error("Error reading input: %v", err)
 		return false
 	}
 

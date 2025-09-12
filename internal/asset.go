@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/google/go-github/v56/github"
 	"github.com/h2non/filetype"
 )
@@ -192,7 +193,7 @@ func (a *Asset) Install(p string) error {
 
 	bar := NewProgressBar(int(info.Size()), "[cyan][3/3][reset] Installing")
 	multi := io.MultiWriter(dest, bar)
-	io.Copy(multi, unpacked)
+	_, err = io.Copy(multi, unpacked)
 	if err != nil {
 		return err
 	}
@@ -282,13 +283,17 @@ func parseAsset(assets []*github.ReleaseAsset) (*Asset, error) {
 		found bool
 	)
 
+	logger.Info("Parsing %d release assets for %s_%s", len(assets), currentOS, currentArch)
+
 	for _, a := range assets {
 
 		name = strings.ToLower(*a.Name)
+		logger.Info("Evaluating asset: %s", name)
 
 		if containsCurrentOSAndArch(name) && isSupportedExt(name) {
 			url = *a.BrowserDownloadURL
 			found = true
+			logger.Info("Found compatible asset: %s", name)
 			break
 		}
 	}
