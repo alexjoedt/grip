@@ -1,8 +1,9 @@
 # grip 
 
 ![Version](https://img.shields.io/github/v/release/alexjoedt/grip?label=version)
-![Build](https://img.shields.io/github/actions/workflow/status/alexjoedt/grip/release.yml?label=release)
-![Release](https://img.shields.io/github/actions/workflow/status/alexjoedt/grip/build.yml?logo=go)
+[![Build](https://github.com/alexjoedt/grip/actions/workflows/build.yml/badge.svg)](https://github.com/alexjoedt/grip/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/alexjoedt/grip)](https://github.com/alexjoedt/grip/releases)
+[![codecov](https://codecov.io/gh/alexjoedt/grip/branch/main/graph/badge.svg)](https://codecov.io/gh/alexjoedt/grip)
 
 <p align="center">
   <img alt="Grip Logo" src="assets/grip.png" height="500" />

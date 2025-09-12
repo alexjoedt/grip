@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,11 @@ import (
 	"github.com/google/go-github/v56/github"
 	"github.com/h2non/filetype"
 )
+
+// HTTPClient interface for dependency injection
+type HTTPClient interface {
+	Get(url string) (*http.Response, error)
+}
 
 // Asset describes a release asset
 type Asset struct {
@@ -23,12 +29,14 @@ type Asset struct {
 	tempDir     string
 	repoName    string
 	repoOwner   string
+
+	httpClient  HTTPClient // Injected HTTP client for testing
 }
 
 // init initializes temp dirs
 func (a *Asset) init() error {
 	if a.Name == "" {
-		return errors.New("asset has no name")
+		return errors.Join(ErrInvalidAsset, errors.New("asset has no name"))
 	}
 
 	tempDir, err := os.MkdirTemp(os.TempDir(), a.Name+"*")
@@ -55,11 +63,18 @@ func (a *Asset) init() error {
 
 // download downloads the asset from github
 func (a *Asset) download() error {
-	res, err := httpClient.Get(a.DownloadURL)
+	client := a.httpClient
+	if client == nil {
+		client = httpClient // fallback to global client
+	}
+	
+	res, err := client.Get(a.DownloadURL)
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode > 299 {
 		return fmt.Errorf("invalid response with status %s", res.Status)
@@ -69,11 +84,13 @@ func (a *Asset) download() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	bar := NewProgressBar(int(res.ContentLength), "[cyan][1/3][reset] Downloading")
 
-	io.Copy(io.MultiWriter(f, bar), res.Body)
+	_, err = io.Copy(io.MultiWriter(f, bar), res.Body)
 	if err != nil {
 		return err
 	}
