@@ -1,6 +1,6 @@
 module github.com/alexjoedt/grip
 
-go 1.20
+go 1.25
 
 require (
 	github.com/google/go-github/v56 v56.0.0
