@@ -16,20 +16,47 @@ tasks:
       - go mod verify
 
   build:
+    desc: "Build grip using GoReleaser (snapshot mode)"
     cmds:
       - go mod verify
-      - go build -o bin/{{.BINARY}} cmd/main.go
+      - goreleaser build --snapshot --clean
 
   install:
+    desc: "Build and install grip to {{.GRIP_INSTALL_PATH}}"
     cmds:
       - task: build
-      - cp bin/{{.BINARY}} {{.GRIP_INSTALL_PATH}}/{{.BINARY}}
+      - |
+        GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)
+        EXT=""
+        if [[ "$GOOS" == "windows" ]]; then
+          EXT=".exe"
+        fi
+        BINARY_PATH=$(find dist -name "grip${EXT}" -path "*grip_${GOOS}_${GOARCH}*" | head -1)
+        if [[ -z "$BINARY_PATH" ]]; then
+          echo "Error: Binary not found for ${GOOS}/${GOARCH}"
+          exit 1
+        fi
+        cp "$BINARY_PATH" {{.GRIP_INSTALL_PATH}}/{{.BINARY}}
+        echo "{{.BINARY}} installed to {{.GRIP_INSTALL_PATH}}"
 
   run:
+    desc: "Build and run grip"
     cmds:
       - task: build
-      - ./bin/{{.BINARY}}
+      - |
+        GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)
+        EXT=""
+        if [[ "$GOOS" == "windows" ]]; then
+          EXT=".exe"
+        fi
+        BINARY_PATH=$(find dist -name "grip${EXT}" -path "*grip_${GOOS}_${GOARCH}*" | head -1)
+        if [[ -z "$BINARY_PATH" ]]; then
+          echo "Error: Binary not found for ${GOOS}/${GOARCH}"
+          exit 1
+        fi
+        "$BINARY_PATH"
 
   clean:
+    desc: "Remove build artifacts"
     cmds:
-      - rm -rf bin
+      - rm -rf bin dist
