@@ -109,9 +109,7 @@ func CheckPathEnv() {
 	}
 }
 
-func SelfUpdate(version string) error {
-	ctx := context.Background()
-	
+func SelfUpdate(ctx context.Context, version string) error {
 	currentVersion, err := semver.Parse(version)
 	if err != nil {
 		return err

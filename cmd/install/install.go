@@ -7,7 +7,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func Command(app *cli.App, installer *grip.Installer, cfg *grip.Config) {
+func Command(ctx context.Context, app *cli.App, installer *grip.Installer, cfg *grip.Config) {
 	cmd := &cli.Command{
 		Name:  "install",
 		Usage: "install an executable from a GitHub release",
@@ -43,7 +43,7 @@ func Command(app *cli.App, installer *grip.Installer, cfg *grip.Config) {
 				Alias:       c.String("alias"),
 			}
 
-			return installer.Install(context.Background(), opts)
+			return installer.Install(ctx, opts)
 		},
 	}
 	app.Commands = append(app.Commands, cmd)

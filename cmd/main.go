@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
@@ -46,6 +49,9 @@ func main() {
 	// Create installer
 	installer := grip.NewInstaller(cfg, storage, ghClient, httpClient)
 
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	app := &cli.App{
 		Name:    "grip",
 		Usage:   "grip [flags] <command>",
@@ -65,8 +71,8 @@ func main() {
 	}
 
 	versionCommand(app)
-	install.Command(app, installer, cfg)
-	update.Command(app, installer, storage, cfg)
+	install.Command(ctx, app, installer, cfg)
+	update.Command(ctx, app, installer, storage, cfg)
 	list.Command(app, storage)
 	remove.Command(app, storage, cfg)
 
