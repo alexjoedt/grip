@@ -2,10 +2,10 @@ package install
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 
 	grip "github.com/alexjoedt/grip/internal"
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/urfave/cli/v2"
 )
 
@@ -111,7 +111,7 @@ func (c *Config) Action(ctx *cli.Context) error {
 	}
 
 	grip.CheckPathEnv()
-	fmt.Fprintf(os.Stdout, "\n --> %s@%s installed successfully\n", asset.BinaryName(), asset.Tag)
+	logger.Success("%s@%s installed successfully", asset.BinaryName(), asset.Tag)
 
 	err = grip.UpdateEntry(grip.RepoEntry{
 		Name:        name,

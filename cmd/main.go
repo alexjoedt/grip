@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
 	"github.com/alexjoedt/grip/cmd/remove"
 	"github.com/alexjoedt/grip/cmd/update"
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/urfave/cli/v2"
 )
 
@@ -22,6 +22,18 @@ func main() {
 		Name:    "grip",
 		Usage:   "grip [flags] <command>",
 		Version: version,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "verbose",
+				Usage: "enable verbose output",
+			},
+		},
+		Before: func(ctx *cli.Context) error {
+			if ctx.Bool("verbose") {
+				logger.SetVerbose(true)
+			}
+			return nil
+		},
 	}
 
 	versionCommand(app)
@@ -31,7 +43,7 @@ func main() {
 	remove.Command(app)
 
 	if err := app.Run(os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+		logger.Error("%s", err.Error())
 		os.Exit(1)
 	}
 
@@ -43,10 +55,10 @@ func versionCommand(app *cli.App) {
 		Usage:       "prints the version of grip",
 		Description: "prints the version of grip",
 		Action: func(ctx *cli.Context) error {
-			fmt.Printf("grip - Installing effortlessly single-executable releases from GitHub projects\n")
-			fmt.Printf("%s\n", version)
-			fmt.Printf("%s\n", build[:8])
-			fmt.Printf("%s\n", date)
+			logger.Println("grip - Installing effortlessly single-executable releases from GitHub projects")
+			logger.Println("%s", version)
+			logger.Println("%s", build[:8])
+			logger.Println("%s", date)
 			return nil
 		},
 	}
