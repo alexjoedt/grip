@@ -12,90 +12,64 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-type Config struct {
-	Filter string
-}
-
-func Command(app *cli.App) *Config {
-	cfg := Config{}
+func Command(app *cli.App, storage *grip.Storage) {
 	cmd := &cli.Command{
-		Name:   "ls",
-		Usage:  "lists all installed executables by grip",
-		Action: cfg.Action,
+		Name:  "ls",
+		Usage: "lists all installed executables by grip",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:        "filter",
-				Usage:       "filters installed executables",
-				Destination: &cfg.Filter,
+				Name:  "filter",
+				Usage: "filters installed executables (format: field=regex)",
 			},
 		},
-	}
-
-	app.Commands = append(app.Commands, cmd)
-	return &cfg
-}
-
-func (cfg *Config) Action(cCtx *cli.Context) error {
-
-	filteredEntries := make([]grip.RepoEntry, 0)
-
-	if cfg.Filter != "" {
-
-		rawLines, err := grip.GetLockFileLines()
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(cfg.Filter, "=")
-		if len(parts) != 2 {
-			return errors.New("invalid filter")
-		}
-
-		var index int
-		switch parts[0] {
-		case "name":
-			index = 0
-		case "tag":
-			index = 1
-		case "repo":
-			index = 2
-		case "path":
-			index = 3
-		default:
-			return errors.New("unsupported key for filter, valid filters: name, tag, repo, path")
-		}
-
-		regEx, err := regexp.Compile(parts[1])
-		if err != nil {
-			return err
-		}
-
-		for _, line := range rawLines {
-			if regEx.MatchString(line[index]) {
-				entry := grip.RepoEntry{
-					Name:        line[0],
-					Tag:         line[1],
-					Repo:        line[2],
-					InstallPath: line[3],
-				}
-				filteredEntries = append(filteredEntries, entry)
+		Action: func(c *cli.Context) error {
+			installations, err := storage.List()
+			if err != nil {
+				return err
 			}
-		}
 
-	} else {
+			filter := c.String("filter")
+			if filter != "" {
+				parts := strings.Split(filter, "=")
+				if len(parts) != 2 {
+					return errors.New("invalid filter format, use: field=regex")
+				}
 
-		entries, err := grip.GetAllEntries()
-		if err != nil {
-			return err
-		}
-		filteredEntries = entries
+				regEx, err := regexp.Compile(parts[1])
+				if err != nil {
+					return err
+				}
 
+				var filtered []*grip.Installation
+				for _, inst := range installations {
+					var value string
+					switch parts[0] {
+					case "name":
+						value = inst.Name
+					case "tag":
+						value = inst.Tag
+					case "repo":
+						value = inst.Repo
+					case "path":
+						value = inst.InstallPath
+					default:
+						return errors.New("unsupported filter field, valid: name, tag, repo, path")
+					}
+					if regEx.MatchString(value) {
+						filtered = append(filtered, inst)
+					}
+				}
+				installations = filtered
+			}
+
+			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintf(tw, "NAME\tTAG\tREPO\tINSTALL PATH\n")
+
+			for _, inst := range installations {
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", inst.Name, inst.Tag, inst.Repo, inst.InstallPath)
+			}
+			return tw.Flush()
+		},
 	}
-
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "NAME\tTAG\tREPO\tINSTALL PATH\n")
-
-	for _, e := range filteredEntries {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, e.Tag, e.Repo, e.InstallPath)
-	}
-	return tw.Flush()
+	app.Commands = append(app.Commands, cmd)
 }

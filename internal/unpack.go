@@ -5,16 +5,165 @@ import (
 	"archive/zip"
 	"compress/bzip2"
 	"compress/gzip"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/h2non/filetype"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 )
 
 type unpackFn func(io.Reader, string, *progressbar.ProgressBar) error
+
+// Unpacker handles extracting various archive formats
+type Unpacker struct {
+	unpackers map[string]unpackFn
+}
+
+// NewUnpacker creates a new Unpacker with support for common archive formats
+func NewUnpacker() *Unpacker {
+	return &Unpacker{
+		unpackers: map[string]unpackFn{
+			".tar.gz":  unpackTarGz,
+			".tar.bz2": unpackTarBz2,
+			".tbz":     unpackTarBz2,
+			".zip":     unpackZip,
+			".tar.xz":  unpackTarXz,
+			".bz2":     unpackBz2,
+		},
+	}
+}
+
+// Unpack extracts an archive file to the destination directory
+// Returns the path to the executable binary found in the archive
+func (u *Unpacker) Unpack(archivePath, destDir string) (string, error) {
+	archiveInfo, err := os.Stat(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("stat archive: %w", err)
+	}
+
+	ext, unpackFn, err := u.getUnpackFn(archivePath)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return "", fmt.Errorf("create destination directory: %w", err)
+	}
+
+	archive, err := os.Open(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("open archive: %w", err)
+	}
+	defer archive.Close()
+
+	unpackDest := destDir
+	if ext == ".bz2" {
+		// .bz2 files need special handling
+		unpackDest = filepath.Join(destDir, filepath.Base(archivePath))
+		unpackDest = strings.TrimSuffix(unpackDest, ext)
+	}
+
+	bar := NewProgressBar(int(archiveInfo.Size()), "[cyan][2/3][reset] Unpacking")
+	if err := unpackFn(archive, unpackDest, bar); err != nil {
+		return "", fmt.Errorf("unpack archive: %w", err)
+	}
+	fmt.Println() // new line after progress bar
+
+	execPath, err := u.findExecutable(destDir)
+	if err != nil {
+		return "", fmt.Errorf("find executable: %w", err)
+	}
+
+	return execPath, nil
+}
+
+// IsSupportedFormat checks if the filename has a supported archive extension
+func (u *Unpacker) IsSupportedFormat(filename string) bool {
+	for ext := range u.unpackers {
+		if strings.HasSuffix(strings.ToLower(filename), ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// getUnpackFn returns the appropriate unpacker function for the filename
+func (u *Unpacker) getUnpackFn(filename string) (string, unpackFn, error) {
+	filename = strings.ToLower(filename)
+	for ext, fn := range u.unpackers {
+		if strings.HasSuffix(filename, ext) {
+			return ext, fn, nil
+		}
+	}
+	return "", nil, fmt.Errorf("unsupported archive format: %s", filename)
+}
+
+// findExecutable searches for an executable binary in the directory tree
+func (u *Unpacker) findExecutable(dir string) (string, error) {
+	fileTypes := map[string]bool{
+		"application/x-mach-binary": true,
+		"application/x-executable":  true,
+	}
+
+	var executablePath string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			mimeType, err := u.detectFileType(path)
+			if err != nil {
+				// Continue searching on error
+				return nil
+			}
+
+			if fileTypes[mimeType] {
+				executablePath = path
+				return filepath.SkipAll // Stop walking
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	if executablePath == "" {
+		return "", errors.New("no executable found in archive")
+	}
+
+	return executablePath, nil
+}
+
+// detectFileType detects the MIME type of a file
+func (u *Unpacker) detectFileType(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	buffer := make([]byte, 261)
+	n, err := f.Read(buffer)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+
+	kind, err := filetype.Match(buffer[:n])
+	if err != nil {
+		return "", err
+	}
+
+	return kind.MIME.Value, nil
+}
 
 func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
 	gzr, err := gzip.NewReader(packageFile)

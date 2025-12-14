@@ -1,25 +1,17 @@
 package grip
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/google/go-github/v56/github"
-	"github.com/h2non/filetype"
 )
 
-// HTTPClient interface for dependency injection
-type HTTPClient interface {
-	Get(url string) (*http.Response, error)
-}
-
-// Asset describes a release asset
+// Asset describes a release asset (pure data structure)
 type Asset struct {
 	Name        string
 	Alias       string
@@ -27,323 +19,91 @@ type Asset struct {
 	Arch        string
 	DownloadURL string
 	Tag         string
-	tempDir     string
-	repoName    string
-	repoOwner   string
-
-	httpClient  HTTPClient // Injected HTTP client for testing
+	RepoName    string
+	RepoOwner   string
 }
 
-// init initializes temp dirs
-func (a *Asset) init() error {
-	if a.Name == "" {
-		return errors.Join(ErrInvalidAsset, errors.New("asset has no name"))
-	}
-
-	tempDir, err := os.MkdirTemp(os.TempDir(), a.Name+"*")
-	if err != nil {
-		return err
-	}
-
-	a.tempDir = tempDir
-
-	// create download dir
-	err = os.MkdirAll(filepath.Join(tempDir, "download"), 0775)
-	if err != nil {
-		return err
-	}
-
-	// create unpack dir
-	err = os.MkdirAll(filepath.Join(tempDir, "unpack"), 0775)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// download downloads the asset from github
-func (a *Asset) download() error {
-	client := a.httpClient
-	if client == nil {
-		client = httpClient // fallback to global client
-	}
-	
-	res, err := client.Get(a.DownloadURL)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = res.Body.Close()
-	}()
-
-	if res.StatusCode > 299 {
-		return fmt.Errorf("invalid response with status %s", res.Status)
-	}
-
-	f, err := os.Create(filepath.Join(a.tempDir, "download", a.Name))
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	bar := NewProgressBar(int(res.ContentLength), "[cyan][1/3][reset] Downloading")
-
-	_, err = io.Copy(io.MultiWriter(f, bar), res.Body)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println() // new line after progressbar
-	return nil
-}
-
-// unpack extracts the package if needed
-func (a *Asset) unpack() error {
-
-	packagePath := filepath.Join(a.tempDir, "download", a.Name)
-	packageInfo, err := os.Stat(packagePath)
-	if err != nil {
-		return err
-	}
-
-	ext, fn, err := getUnpackFn(a.Name)
-	if err != nil {
-		return err
-	}
-
-	unpackDir := filepath.Join(a.tempDir, "unpack")
-	pack, err := os.Open(packagePath)
-	if err != nil {
-		return err
-	}
-	defer pack.Close()
-
-	if ext == ".bz2" {
-		unpackDir = filepath.Join(unpackDir, a.BinaryName())
-	}
-
-	bar := NewProgressBar(int(packageInfo.Size()), "[cyan][2/3][reset] Unpacking")
-	defer func() {
-		fmt.Println()
-	}()
-
-	return fn(pack, unpackDir, bar)
-}
-
-// install installs the executable
-func (a *Asset) Install(p string) error {
-	if p == "" {
-		return ErrNoInstallPath
-	}
-
-	if !filepath.IsAbs(p) {
-		return ErrNoAbsolutePath
-	}
-
-	defer a.clean()
-	p = strings.TrimSuffix(p, "/")
-
-	var err error
-
-	err = a.init()
-	if err != nil {
-		return err
-	}
-
-	err = a.download()
-	if err != nil {
-		return err
-	}
-
-	err = a.unpack()
-	if err != nil {
-		return err
-	}
-
-	binPath, err := findExecutable(filepath.Join(a.tempDir, "unpack"))
-	if err != nil {
-		return err
-	}
-
-	err = os.Chmod(binPath, 0744)
-	if err != nil {
-		return err
-	}
-
-	info, err := os.Stat(binPath)
-	if err != nil {
-		return err
-	}
-
-	unpacked, err := os.Open(binPath)
-	if err != nil {
-		return err
-	}
-	defer unpacked.Close()
-
-	destBin := filepath.Join(p, a.BinaryName())
-	dest, err := os.Create(destBin)
-	if err != nil {
-		return err
-	}
-	defer dest.Close()
-
-	bar := NewProgressBar(int(info.Size()), "[cyan][3/3][reset] Installing")
-	multi := io.MultiWriter(dest, bar)
-	_, err = io.Copy(multi, unpacked)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println()
-
-	err = os.Chmod(destBin, 0755)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// BinaryName guesses the binary name
+// BinaryName returns the name for the installed binary
 func (a *Asset) BinaryName() string {
 	if a.Alias != "" {
 		return a.Alias
 	}
-	return a.repoName
+	if a.RepoName != "" {
+		return a.RepoName
+	}
+	// Fallback: extract name from asset filename
+	name := strings.ToLower(a.Name)
+	for ext := range map[string]bool{
+		".tar.gz": true, ".tar.bz2": true, ".tbz": true,
+		".zip": true, ".tar.xz": true, ".bz2": true,
+	} {
+		name = strings.TrimSuffix(name, ext)
+	}
+	return name
 }
 
-// clean removes the temp folder that was used for installing
-func (a *Asset) clean() error {
-	return os.RemoveAll(a.tempDir)
-}
+// parseAsset selects the appropriate asset for the platform
+func parseAsset(assets []*github.ReleaseAsset, cfg *Config, repoOwner, repoName string) (*Asset, error) {
+	logger.Info("Parsing %d release assets for %s_%s", len(assets), cfg.OS, cfg.Arch)
 
-func findExecutable(dir string) (string, error) {
-
-	fileTypes := map[string]int{
-		"application/x-mach-binary": 0,
-		"application/x-executable":  0,
-	}
-
-	var executablePath string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !info.IsDir() {
-			ft, err := detectFileType(path)
-			if err != nil {
-				return err
-			}
-
-			if _, ok := fileTypes[ft]; ok {
-				executablePath = path
-				return nil
-			}
-		}
-
-		return nil
-	})
-
-	if executablePath == "" {
-		err = errors.New("no executable found")
-	}
-
-	return executablePath, err
-}
-
-func detectFileType(p string) (string, error) {
-	r, err := os.Open(p)
-	if err != nil {
-		return "", err
-	}
-	defer r.Close()
-
-	buffer := make([]byte, 261)
-	n, err := r.Read(buffer)
-	if err != nil && err != io.EOF {
-		return "", err
-	}
-	kind, err := filetype.Match(buffer[:n])
-	if err != nil {
-		return "", err
-	}
-	return kind.MIME.Value, nil
-}
-
-// parseAsset gets the right asset for OS and Arch
-func parseAsset(assets []*github.ReleaseAsset) (*Asset, error) {
-	var (
-		name  string
-		url   string
-		found bool
-	)
-
-	logger.Info("Parsing %d release assets for %s_%s", len(assets), currentOS, currentArch)
+	unpacker := NewUnpacker()
 
 	for _, a := range assets {
-
-		name = strings.ToLower(*a.Name)
+		name := strings.ToLower(*a.Name)
 		logger.Info("Evaluating asset: %s", name)
 
-		if containsCurrentOSAndArch(name) && isSupportedExt(name) {
-			url = *a.BrowserDownloadURL
-			found = true
+		if MatchesPlatform(name, cfg.OS, cfg.Arch, cfg.OSAliases, cfg.ArchAliases) && unpacker.IsSupportedFormat(name) {
 			logger.Info("Found compatible asset: %s", name)
-			break
+			return &Asset{
+				Name:        name,
+				OS:          cfg.OS,
+				Arch:        cfg.Arch,
+				DownloadURL: *a.BrowserDownloadURL,
+				RepoOwner:   repoOwner,
+				RepoName:    repoName,
+			}, nil
 		}
 	}
 
-	if !found {
-		return nil, fmt.Errorf("no asset found for %s_%s", currentOS, currentArch)
-	}
-
-	return &Asset{
-		Name:        name,
-		OS:          currentOS,
-		Arch:        currentArch,
-		DownloadURL: url,
-	}, nil
+	return nil, fmt.Errorf("no asset found for %s_%s", cfg.OS, cfg.Arch)
 }
 
-// getUnpackFn gets the right unpacker for the given asset
-func getUnpackFn(name string) (string, unpackFn, error) {
-	for ext, mt := range unpacker {
-		if strings.HasSuffix(name, ext) {
-			return ext, mt, nil
+// InstallAsset orchestrates the complete installation workflow
+func InstallAsset(ctx context.Context, asset *Asset, cfg *Config, httpClient *http.Client) error {
+	// Create workspace
+	ws, err := NewWorkspace(cfg.TempDir, asset.Name)
+	if err != nil {
+		return fmt.Errorf("create workspace: %w", err)
+	}
+	defer func() {
+		if cleanupErr := ws.Cleanup(); cleanupErr != nil {
+			logger.Error("Failed to cleanup workspace: %v", cleanupErr)
 		}
-	}
-	return "", nil, fmt.Errorf("unsupported extension in filename: %s", name)
-}
+	}()
 
-// containsCurrentOSAndArch checks the filename for OS and Arch
-func containsCurrentOSAndArch(name string) bool {
-	if stringContainsAny(name, append(osAliases[currentOS], currentOS)...) &&
-		stringContainsAny(name, append(archAliases[currentArch], currentArch)...) {
-		return true
+	// Download asset
+	downloader := NewDownloader(httpClient)
+	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
+	if err := downloader.Download(ctx, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
+		return fmt.Errorf("download: %w", err)
 	}
-	return false
-}
 
-// stringContainsAny helper function
-func stringContainsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
+	// Unpack archive
+	unpacker := NewUnpacker()
+	execPath, err := unpacker.Unpack(archivePath, ws.UnpackDir())
+	if err != nil {
+		return fmt.Errorf("unpack: %w", err)
 	}
-	return false
-}
 
-func isSupportedExt(name string) bool {
-	for ext := range unpacker {
-		if strings.HasSuffix(name, ext) {
-			return true
-		}
+	// Install binary
+	installer, err := NewBinaryInstaller(cfg.BinDir)
+	if err != nil {
+		return fmt.Errorf("create installer: %w", err)
 	}
-	return false
+
+	if err := installer.Install(execPath, asset.BinaryName()); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+
+	return nil
 }

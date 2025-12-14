@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   BINARY: grip
-  GRIP_HOME_BIN: ~/.grip/bin
+  GRIP_INSTALL_PATH: /usr/local/bin/
 
 tasks:
   tidy:
@@ -23,7 +23,7 @@ tasks:
   install:
     cmds:
       - task: build
-      - cp bin/{{.BINARY}} {{.GRIP_HOME_BIN}}/{{.BINARY}}
+      - cp bin/{{.BINARY}} {{.GRIP_INSTALL_PATH}}/{{.BINARY}}
 
   run:
     cmds:

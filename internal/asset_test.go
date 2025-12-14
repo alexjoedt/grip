@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,17 +19,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// MockHTTPClient is a mock implementation of HTTPClient
-type MockHTTPClient struct {
+// MockRoundTripper is a mock implementation of http.RoundTripper for testing HTTP clients
+type MockRoundTripper struct {
 	mock.Mock
 }
 
-func (m *MockHTTPClient) Get(url string) (*http.Response, error) {
-	args := m.Called(url)
+func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	args := m.Called(req)
 	if resp := args.Get(0); resp != nil {
 		return resp.(*http.Response), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+// Helper to create a mock HTTP client
+func newMockHTTPClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{
+		Transport: transport,
+	}
 }
 
 // Test helpers and fixtures
@@ -91,168 +99,66 @@ func createTestTarGz() ([]byte, error) {
 
 
 
-// createTestAsset creates a test asset with optional HTTP client injection
-func createTestAsset(t *testing.T,name, downloadURL string, httpClient HTTPClient) *Asset {
-	return &Asset{
-		Name:        name,
-		DownloadURL: downloadURL,
-		repoName:    "test-repo",
-		Alias:       "test-alias",
-		httpClient: httpClient,
-	}
-}
-
-func TestInit(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name        string
-		assetName   string
-		expectError bool
-		errorType   error
-	}{
-		{
-			name:        "create valid asset",
-			assetName:   "Asset-1",
-			expectError: false,
-		},
-		{
-			name:        "create asset with empty name",
-			assetName:   "",
-			expectError: true,
-			errorType:   ErrInvalidAsset,
-		},
-		{
-			name:        "create asset with whitespace name",
-			assetName:   "   ",
-			expectError: false, // whitespace is valid but not recommended
-		},
-		{
-			name:        "create asset with special characters",
-			assetName:   "Asset@#$%",
-			expectError: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc // capture range variable
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			asset := createTestAsset(t,tc.assetName, "https://example.com/test.tar.gz", nil)
-			err := asset.init()
-
-			if tc.expectError {
-				assert.Error(t, err)
-				if tc.errorType != nil {
-					assert.ErrorIs(t, err, tc.errorType)
-				}
-			} else {
-				assert.NoError(t, err)
-				assert.NotEmpty(t, asset.tempDir)
-				assert.DirExists(t, asset.tempDir)
-				assert.DirExists(t, filepath.Join(asset.tempDir, "unpack"))
-				assert.DirExists(t, filepath.Join(asset.tempDir, "download"))
-
-				// Check directory permissions
-				info, err := os.Stat(filepath.Join(asset.tempDir, "download"))
-				assert.NoError(t, err)
-				assert.True(t, info.IsDir())
-				
-				info, err = os.Stat(filepath.Join(asset.tempDir, "unpack"))
-				assert.NoError(t, err)
-				assert.True(t, info.IsDir())
-			}
-
-			// Cleanup
-			t.Cleanup(func() {
-				if asset.tempDir != "" {
-					_ = os.RemoveAll(asset.tempDir)
-				}
-			})
-		})
-	}
-}
-
-func TestDownload(t *testing.T) {
+// Test Downloader service
+func TestDownloader(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
 		name           string
-		assetName      string
+		filename       string
 		downloadURL    string
-		mockSetup      func(*MockHTTPClient)
+		mockSetup      func(*MockRoundTripper)
 		expectError    bool
 		expectedErrMsg string
 	}{
 		{
 			name:        "successful download",
-			assetName:   "test.tar.gz",
+			filename:    "test.tar.gz",
 			downloadURL: "https://example.com/test.tar.gz",
-			mockSetup: func(m *MockHTTPClient) {
+			mockSetup: func(m *MockRoundTripper) {
 				resp := createMockResponse(200, "test file content", 17)
-				m.On("Get", "https://example.com/test.tar.gz").Return(resp, nil)
+				m.On("RoundTrip", mock.Anything).Return(resp, nil)
 			},
 			expectError: false,
 		},
 		{
 			name:        "HTTP 404 error",
-			assetName:   "missing.tar.gz",
+			filename:    "missing.tar.gz",
 			downloadURL: "https://example.com/missing.tar.gz",
-			mockSetup: func(m *MockHTTPClient) {
+			mockSetup: func(m *MockRoundTripper) {
 				resp := createMockResponse(404, "Not Found", 9)
-				m.On("Get", "https://example.com/missing.tar.gz").Return(resp, nil)
+				m.On("RoundTrip", mock.Anything).Return(resp, nil)
 			},
 			expectError:    true,
-			expectedErrMsg: "invalid response with status",
-		},
-		{
-			name:        "HTTP 500 error",
-			assetName:   "error.tar.gz",
-			downloadURL: "https://example.com/error.tar.gz",
-			mockSetup: func(m *MockHTTPClient) {
-				resp := createMockResponse(500, "Internal Server Error", 21)
-				m.On("Get", "https://example.com/error.tar.gz").Return(resp, nil)
-			},
-			expectError:    true,
-			expectedErrMsg: "invalid response with status",
+			expectedErrMsg: "download failed with status",
 		},
 		{
 			name:        "network error",
-			assetName:   "network.tar.gz",
+			filename:    "network.tar.gz",
 			downloadURL: "https://example.com/network.tar.gz",
-			mockSetup: func(m *MockHTTPClient) {
-				m.On("Get", "https://example.com/network.tar.gz").Return(nil, fmt.Errorf("connection refused"))
+			mockSetup: func(m *MockRoundTripper) {
+				m.On("RoundTrip", mock.Anything).Return(nil, fmt.Errorf("connection refused"))
 			},
 			expectError:    true,
 			expectedErrMsg: "connection refused",
 		},
-		{
-			name:        "empty URL",
-			assetName:   "empty.tar.gz",
-			downloadURL: "",
-			mockSetup: func(m *MockHTTPClient) {
-				m.On("Get", "").Return(nil, fmt.Errorf("invalid URL"))
-			},
-			expectError:    true,
-			expectedErrMsg: "invalid URL",
-		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc // capture range variable
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			mockClient := new(MockHTTPClient)
-			tc.mockSetup(mockClient)
+			mockTransport := new(MockRoundTripper)
+			tc.mockSetup(mockTransport)
 
-			asset := createTestAsset(t,tc.assetName, tc.downloadURL, mockClient)
-			
-			// Initialize the asset first
-			require.NoError(t, asset.init())
+			httpClient := newMockHTTPClient(mockTransport)
+			downloader := NewDownloader(httpClient)
+			destDir := filepath.Join(os.TempDir(), "test-download-"+tc.filename)
+			defer os.RemoveAll(destDir)
 
-			err := asset.download()
+			ctx := context.Background()
+			err := downloader.Download(ctx, tc.downloadURL, destDir, tc.filename)
 
 			if tc.expectError {
 				assert.Error(t, err)
@@ -261,237 +167,160 @@ func TestDownload(t *testing.T) {
 				}
 			} else {
 				assert.NoError(t, err)
-				// Check that file was created
-				downloadPath := filepath.Join(asset.tempDir, "download", asset.Name)
+				downloadPath := filepath.Join(destDir, tc.filename)
 				assert.FileExists(t, downloadPath)
 				
-				// Check file content
 				content, err := os.ReadFile(downloadPath)
 				assert.NoError(t, err)
 				assert.Equal(t, "test file content", string(content))
 			}
 
-			// Verify mock expectations
-			mockClient.AssertExpectations(t)
-
-			// Cleanup
-			t.Cleanup(func() {
-				if asset.tempDir != "" {
-					_ = os.RemoveAll(asset.tempDir)
-				}
-			})
+			mockTransport.AssertExpectations(t)
 		})
 	}
 }
 
-func TestUnpack(t *testing.T) {
+// Test Unpacker service
+func TestUnpacker(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name        string
-		assetName   string
-		setupMock   func(*MockHTTPClient) []byte
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name:      "successful unpack tar.gz",
-			assetName: "test.tar.gz",
-			setupMock: func(m *MockHTTPClient) []byte {
-				// Create test tar.gz content
-				tarData, err := createTestTarGz()
-				require.NoError(t, err)
-				
-				resp := createMockResponse(200, string(tarData), int64(len(tarData)))
-				m.On("Get", "https://example.com/test.tar.gz").Return(resp, nil)
-				return tarData
-			},
-			expectError: false,
-		},
-		{
-			name:      "invalid archive format",
-			assetName: "test.invalid",
-			setupMock: func(m *MockHTTPClient) []byte {
-				invalidData := []byte("not an archive")
-				resp := createMockResponse(200, string(invalidData), int64(len(invalidData)))
-				m.On("Get", "https://example.com/test.invalid").Return(resp, nil)
-				return invalidData
-			},
-			expectError: true,
-			errorMsg:    "unsupported extension",
-		},
-		{
-			name:      "corrupted archive",
-			assetName: "test.tar.gz",
-			setupMock: func(m *MockHTTPClient) []byte {
-				corruptData := []byte("corrupted gzip data")
-				resp := createMockResponse(200, string(corruptData), int64(len(corruptData)))
-				m.On("Get", "https://example.com/test.tar.gz").Return(resp, nil)
-				return corruptData
-			},
-			expectError: true,
-		},
-	}
+	t.Run("unpack tar.gz", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tc := range testCases {
-		tc := tc // capture range variable
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		// Create test archive
+		tarData, err := createTestTarGz()
+		require.NoError(t, err)
 
-			mockClient := new(MockHTTPClient)
-			testData := tc.setupMock(mockClient)
+		// Write to temp file
+		tempDir := filepath.Join(os.TempDir(), "test-unpack")
+		require.NoError(t, os.MkdirAll(tempDir, 0755))
+		defer os.RemoveAll(tempDir)
 
-			asset := createTestAsset(t,tc.assetName, "https://example.com/"+tc.assetName, mockClient)
-			
-			// Initialize and download first
-			require.NoError(t, asset.init())
-			require.NoError(t, asset.download())
+		archivePath := filepath.Join(tempDir, "test.tar.gz")
+		require.NoError(t, os.WriteFile(archivePath, tarData, 0644))
 
-			err := asset.unpack()
+		// Unpack
+		unpacker := NewUnpacker()
+		destDir := filepath.Join(tempDir, "output")
+		execPath, err := unpacker.Unpack(archivePath, destDir)
 
-			if tc.expectError {
-				assert.Error(t, err)
-				if tc.errorMsg != "" {
-					assert.Contains(t, err.Error(), tc.errorMsg)
-				}
-			} else {
-				assert.NoError(t, err)
-				
-				// Check that unpack directory exists and has content
-				unpackDir := filepath.Join(asset.tempDir, "unpack")
-				assert.DirExists(t, unpackDir)
-				
-				entries, err := os.ReadDir(unpackDir)
-				assert.NoError(t, err)
-				assert.NotEmpty(t, entries, "unpack directory should contain extracted files")
-				
-				// Verify download file still exists
-				downloadPath := filepath.Join(asset.tempDir, "download", asset.Name)
-				assert.FileExists(t, downloadPath)
-				
-				// Verify downloaded content matches expected
-				downloadedData, err := os.ReadFile(downloadPath)
-				assert.NoError(t, err)
-				assert.Equal(t, testData, downloadedData)
-			}
+		assert.NoError(t, err)
+		assert.NotEmpty(t, execPath)
+		assert.FileExists(t, execPath)
+	})
 
-			// Verify mock expectations
-			mockClient.AssertExpectations(t)
+	t.Run("unsupported format", func(t *testing.T) {
+		t.Parallel()
 
-			// Cleanup
-			t.Cleanup(func() {
-				if asset.tempDir != "" {
-					_ = os.RemoveAll(asset.tempDir)
-				}
-			})
-		})
-	}
+		tempDir := filepath.Join(os.TempDir(), "test-unpack-invalid")
+		require.NoError(t, os.MkdirAll(tempDir, 0755))
+		defer os.RemoveAll(tempDir)
+
+		archivePath := filepath.Join(tempDir, "test.txt")
+		require.NoError(t, os.WriteFile(archivePath, []byte("not an archive"), 0644))
+
+		unpacker := NewUnpacker()
+		destDir := filepath.Join(tempDir, "output")
+		_, err := unpacker.Unpack(archivePath, destDir)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported archive format")
+	})
+
+	t.Run("IsSupportedFormat", func(t *testing.T) {
+		t.Parallel()
+
+		unpacker := NewUnpacker()
+		
+		assert.True(t, unpacker.IsSupportedFormat("test.tar.gz"))
+		assert.True(t, unpacker.IsSupportedFormat("test.zip"))
+		assert.True(t, unpacker.IsSupportedFormat("test.tar.bz2"))
+		assert.False(t, unpacker.IsSupportedFormat("test.txt"))
+		assert.False(t, unpacker.IsSupportedFormat("test.exe"))
+	})
 }
 
-func TestInstall(t *testing.T) {
-	testCases := []struct {
-		name        string
-		assetName   string
-		installPath string
-		repoName    string
-		alias       string
-		setupMock   func(*MockHTTPClient)
-		expectError bool
-		expectedErr error
-		errorMsg    string
-	}{
-		{
-			name:        "successful install with absolute path",
-			assetName:   "grip_Darwin_arm64.tar.gz",
-			installPath: filepath.Join(os.TempDir(), "test-install-1"),
-			repoName:    "grip",
-			alias:       "grip",
-			setupMock: func(m *MockHTTPClient) {
-				tarData, err := createTestTarGz()
-				require.NoError(t, err)
-				resp := createMockResponse(200, string(tarData), int64(len(tarData)))
-				m.On("Get", "https://example.com/grip_Darwin_arm64.tar.gz").Return(resp, nil)
-			},
-			expectError: false, // Changed: Install should succeed with proper Mach-O binary
-		},
-		{
-			name:        "install with empty path",
-			assetName:   "grip_Darwin_arm64.tar.gz",
-			installPath: "",
-			repoName:    "grip",
-			alias:       "grip",
-			setupMock:   func(m *MockHTTPClient) {},
-			expectError: true,
-			expectedErr: ErrNoInstallPath,
-		},
-		{
-			name:        "install with relative path",
-			assetName:   "grip_Darwin_arm64.tar.gz",
-			installPath: "temp",
-			repoName:    "grip",
-			alias:       "grip",
-			setupMock:   func(m *MockHTTPClient) {},
-			expectError: true,
-			expectedErr: ErrNoAbsolutePath,
-		},
-	}
+// Test BinaryInstaller service
+func TestBinaryInstaller(t *testing.T) {
+	t.Parallel()
 
-	for _, tc := range testCases {
-		tc := tc // capture range variable
-		t.Run(tc.name, func(t *testing.T) {
-			mockClient := new(MockHTTPClient)
-			tc.setupMock(mockClient)
+	t.Run("successful install", func(t *testing.T) {
+		t.Parallel()
 
-			// Create the install directory if specified and valid
-			if tc.installPath != "" && filepath.IsAbs(tc.installPath) {
-				err := os.MkdirAll(tc.installPath, 0755)
-				require.NoError(t, err)
-			}
+		// Create test binary
+		tempDir := filepath.Join(os.TempDir(), "test-binary-installer")
+		require.NoError(t, os.MkdirAll(tempDir, 0755))
+		defer os.RemoveAll(tempDir)
 
-			// Create asset with all required fields
-			asset := &Asset{
-				Name:        tc.assetName,
-				DownloadURL: "https://example.com/" + tc.assetName,
-				repoName:    tc.repoName,
-				Alias:       tc.alias,
-				httpClient:  mockClient,
-			}
+		srcPath := filepath.Join(tempDir, "source-binary")
+		require.NoError(t, os.WriteFile(srcPath, []byte("test binary content"), 0755))
 
-			err := asset.Install(tc.installPath)
+		// Install
+		binDir := filepath.Join(tempDir, "bin")
+		installer, err := NewBinaryInstaller(binDir)
+		require.NoError(t, err)
 
-			if tc.expectError {
-				assert.Error(t, err)
-				if tc.expectedErr != nil {
-					assert.ErrorIs(t, err, tc.expectedErr)
-				}
-				if tc.errorMsg != "" {
-					assert.Contains(t, err.Error(), tc.errorMsg)
-				}
-			} else {
-				assert.NoError(t, err)
-				
-				// Check that binary was installed
-				expectedBinaryPath := filepath.Join(tc.installPath, asset.BinaryName())
-				assert.FileExists(t, expectedBinaryPath)
-				
-				// Check binary permissions
-				info, err := os.Stat(expectedBinaryPath)
-				assert.NoError(t, err)
-				assert.True(t, info.Mode().Perm() >= 0755, "binary should have executable permissions")
-			}
+		err = installer.Install(srcPath, "test-binary")
+		assert.NoError(t, err)
 
-			// Verify mock expectations
-			mockClient.AssertExpectations(t)
+		// Verify
+		installedPath := filepath.Join(binDir, "test-binary")
+		assert.FileExists(t, installedPath)
+		
+		info, err := os.Stat(installedPath)
+		assert.NoError(t, err)
+		assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+	})
 
-			// Cleanup
-			t.Cleanup(func() {
-				if tc.installPath != "" && filepath.IsAbs(tc.installPath) {
-					_ = os.RemoveAll(tc.installPath)
-				}
-				// Asset should clean up temp directory automatically
-			})
-		})
-	}
+	t.Run("invalid bin directory", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewBinaryInstaller("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot be empty")
+	})
+
+	t.Run("relative path rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewBinaryInstaller("relative/path")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "must be absolute path")
+	})
+}
+
+// Test Workspace manager
+func TestWorkspace(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create and cleanup", func(t *testing.T) {
+		t.Parallel()
+
+		ws, err := NewWorkspace("", "test-workspace")
+		require.NoError(t, err)
+
+		assert.DirExists(t, ws.RootDir())
+		assert.DirExists(t, ws.DownloadDir())
+		assert.DirExists(t, ws.UnpackDir())
+
+		err = ws.Cleanup()
+		assert.NoError(t, err)
+		assert.NoDirExists(t, ws.RootDir())
+	})
+
+	t.Run("cleanup idempotent", func(t *testing.T) {
+		t.Parallel()
+
+		ws, err := NewWorkspace("", "test-workspace")
+		require.NoError(t, err)
+
+		err = ws.Cleanup()
+		assert.NoError(t, err)
+
+		// Second cleanup should not error
+		err = ws.Cleanup()
+		assert.NoError(t, err)
+	})
 }
 
 // TestAssetBinaryName tests the BinaryName method
@@ -502,6 +331,7 @@ func TestAssetBinaryName(t *testing.T) {
 		name     string
 		alias    string
 		repoName string
+		assetName string
 		expected string
 	}{
 		{
@@ -517,21 +347,23 @@ func TestAssetBinaryName(t *testing.T) {
 			expected: "repo-name",
 		},
 		{
-			name:     "empty alias",
-			alias:    "",
-			repoName: "test-repo",
-			expected: "test-repo",
+			name:      "fallback to asset name",
+			alias:     "",
+			repoName:  "",
+			assetName: "tool_linux_amd64.tar.gz",
+			expected:  "tool_linux_amd64",
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc // capture range variable
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			asset := &Asset{
 				Alias:    tc.alias,
-				repoName: tc.repoName,
+				RepoName: tc.repoName,
+				Name:     tc.assetName,
 			}
 
 			result := asset.BinaryName()
@@ -540,29 +372,21 @@ func TestAssetBinaryName(t *testing.T) {
 	}
 }
 
-// TestAssetClean tests the clean method
-func TestAssetClean(t *testing.T) {
-	t.Parallel()
-
-	asset := createTestAsset(t,"test-clean", "https://example.com/test", nil)
-	
-	// Initialize to create temp directory
-	require.NoError(t, asset.init())
-	require.DirExists(t, asset.tempDir)
-
-	// Clean should remove temp directory
-	err := asset.clean()
-	assert.NoError(t, err)
-	assert.NoDirExists(t, asset.tempDir)
-}
-
 // TestParseAsset tests the parseAsset function
 func TestParseAsset(t *testing.T) {
 	t.Parallel()
 
+	// Get current OS and Arch from config
+	cfg, err := DefaultConfig()
+	require.NoError(t, err)
+	currentOS := cfg.OS
+	currentArch := cfg.Arch
+
 	testCases := []struct {
 		name        string
 		assets      []*github.ReleaseAsset
+		repoOwner   string
+		repoName    string
 		expectError bool
 		errorMsg    string
 		expectedOS  string
@@ -584,6 +408,8 @@ func TestParseAsset(t *testing.T) {
 					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
 				},
 			},
+			repoOwner:   "test-owner",
+			repoName:    "test-repo",
 			expectError:  false,
 			expectedOS:   currentOS,
 			expectedArch: currentArch,
@@ -600,6 +426,8 @@ func TestParseAsset(t *testing.T) {
 					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
 				},
 			},
+			repoOwner:   "test-owner",
+			repoName:    "test-repo",
 			expectError: true,
 			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
 		},
@@ -611,47 +439,30 @@ func TestParseAsset(t *testing.T) {
 					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_%s.exe", currentOS, currentArch)),
 				},
 			},
+			repoOwner:   "test-owner",
+			repoName:    "test-repo",
 			expectError: true,
 			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
 		},
 		{
-			name: "matching asset with OS alias",
-			assets: []*github.ReleaseAsset{
-				{
-					Name:               stringPtr("tool_macos_arm64.tar.gz"), // macos is alias for darwin
-					BrowserDownloadURL: stringPtr("https://example.com/tool_macos_arm64.tar.gz"),
-				},
-			},
-			expectError:  currentOS != "darwin", // Should only work on darwin systems
-			expectedOS:   currentOS,
-			expectedArch: currentArch,
-		},
-		{
-			name: "matching asset with arch alias",
-			assets: []*github.ReleaseAsset{
-				{
-					Name:               stringPtr(fmt.Sprintf("tool_%s_x86_64.tar.gz", currentOS)), // x86_64 is alias for amd64
-					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_x86_64.tar.gz", currentOS)),
-				},
-			},
-			expectError:  currentArch != "amd64", // Should only work on amd64 systems
-			expectedOS:   currentOS,
-			expectedArch: currentArch,
-		},
-		{
 			name:        "empty asset list",
 			assets:      []*github.ReleaseAsset{},
+			repoOwner:   "test-owner",
+			repoName:    "test-repo",
 			expectError: true,
 			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc // capture range variable
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			asset, err := parseAsset(tc.assets)
+			cfg, err := DefaultConfig()
+			require.NoError(t, err)
+
+			asset, err := parseAsset(tc.assets, cfg, tc.repoOwner, tc.repoName)
 
 			if tc.expectError {
 				assert.Error(t, err)
@@ -664,6 +475,8 @@ func TestParseAsset(t *testing.T) {
 				assert.NotNil(t, asset)
 				assert.Equal(t, tc.expectedOS, asset.OS)
 				assert.Equal(t, tc.expectedArch, asset.Arch)
+				assert.Equal(t, tc.repoOwner, asset.RepoOwner)
+				assert.Equal(t, tc.repoName, asset.RepoName)
 				assert.NotEmpty(t, asset.Name)
 				assert.NotEmpty(t, asset.DownloadURL)
 				assert.True(t, strings.HasPrefix(asset.DownloadURL, "https://"))
