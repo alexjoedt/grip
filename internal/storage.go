@@ -25,6 +25,14 @@ type Installation struct {
 	InstallPath string    `json:"installPath"`
 }
 
+// repoEntry is used for migrating from the old lock file format
+type repoEntry struct {
+	Name        string
+	Tag         string
+	Repo        string
+	InstallPath string
+}
+
 // Storage manages installed packages
 type Storage struct {
 	filepath string
@@ -224,19 +232,19 @@ func (s *Storage) migrateFromLockFile(oldPath string) error {
 }
 
 // parseOldLockFile reads the old text-based format
-func parseOldLockFile(path string) ([]RepoEntry, error) {
+func parseOldLockFile(path string) ([]repoEntry, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	var entries []RepoEntry
+	var entries []repoEntry
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		parts := strings.Fields(scanner.Text())
 		if len(parts) >= 4 {
-			entry := RepoEntry{
+			entry := repoEntry{
 				Name:        parts[0],
 				Tag:         parts[1],
 				Repo:        parts[2],

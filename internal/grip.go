@@ -11,103 +11,31 @@ import (
 
 	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/alexjoedt/grip/internal/semver"
-	"github.com/google/go-github/v56/github"
 	"github.com/k0kubun/go-ansi"
 	"github.com/minio/selfupdate"
 	"github.com/schollz/progressbar/v3"
-	"golang.org/x/exp/slices"
 )
 
 const (
-	repository string = "github.com/alexjoedt/grip"
+	repository = "github.com/alexjoedt/grip"
 )
 
 var (
-	// homePath, default: ~/.grip
-	homePath string = ""
-
-	// InstallPath is the path where the executables will be installed.
-	// Must be in PATH
-	InstallPath string = ""
-
-	// lockFilepath holds the path to the lock file, where all installed executables
-	// are indexed. The path will be determined in the init function.
-	lockFilepath string = ""
-
-	currentOS   string = runtime.GOOS
-	currentArch string = runtime.GOARCH
+	currentOS   = runtime.GOOS
+	currentArch = runtime.GOARCH
 
 	// osAliases common aliases used in release packages
-	osAliases map[string][]string = map[string][]string{
+	osAliases = map[string][]string{
 		"darwin": {"macos"},
 		"linux":  {"musl"},
 	}
 
 	// archAliases common aliases used in release packages
-	archAliases map[string][]string = map[string][]string{
+	archAliases = map[string][]string{
 		"amd64": {"x86_64"},
 		"arm64": {"aarch64", "universal"},
 	}
-
-	// unpacker unpack functions for common package types
-	unpacker map[string]unpackFn = map[string]unpackFn{
-		".tar.gz":  unpackTarGz,
-		".tar.bz2": unpackTarBz2,
-		".tbz":     unpackTarBz2,
-		".zip":     unpackZip,
-		".tar.xz":  unpackTarXz,
-		".bz2":     unpackBz2,
-	}
-
-	// ghClient github api client
-	ghClient *github.Client
-
-	// httpClient
-	httpClient *http.Client
 )
-
-func init() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		logger.Fatal("No user home dir, please provide an install path")
-	}
-
-	homePath = filepath.Join(home, ".grip")
-
-	sudoUser := os.Getenv("SUDO_USER")
-	if sudoUser != "" && currentOS == "linux" {
-		homePath = filepath.Join("/home", sudoUser, ".grip")
-	}
-
-	// TODO: read install path from config if config file exists
-	InstallPath = filepath.Join(homePath, "bin")
-	err = os.MkdirAll(InstallPath, 0755)
-	if err != nil {
-		logger.Error("Failed to create install path: %v", err)
-	}
-
-	lockFilepath = filepath.Join(homePath, "grip.lock")
-	_, err = os.Stat(lockFilepath)
-	if err != nil {
-		_, err = os.Create(lockFilepath)
-		if err != nil {
-			logger.Error("Failed to create grip.lock: %v", err)
-		}
-	}
-
-	ghClient = github.NewClient(nil)
-	httpClient = &http.Client{
-		Timeout: time.Second * 30,
-	}
-}
-
-func CheckPathEnv() {
-	pathEnv := os.Getenv("PATH")
-	parts := filepath.SplitList(pathEnv)
-	if !slices.Contains(parts, InstallPath) {
-		logger.Warn("The grip path '%s' isn't in PATH", InstallPath)
-	}
-}
 
 func SelfUpdate(ctx context.Context, version string) error {
 	currentVersion, err := semver.Parse(version)
