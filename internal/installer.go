@@ -3,6 +3,7 @@ package grip
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,11 +24,11 @@ type Installer struct {
 	config     *Config
 	storage    *Storage
 	ghClient   GitHubClient
-	httpClient HTTPClient
+	httpClient *http.Client
 }
 
 // NewInstaller creates a new installer
-func NewInstaller(cfg *Config, storage *Storage, ghClient GitHubClient, httpClient HTTPClient) *Installer {
+func NewInstaller(cfg *Config, storage *Storage, ghClient GitHubClient, httpClient *http.Client) *Installer {
 	return &Installer{
 		config:     cfg,
 		storage:    storage,
@@ -88,29 +89,21 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	// Parse asset for current platform
-	asset, err := parseAsset(release.Assets, i.config)
+	asset, err := parseAsset(release.Assets, i.config, owner, name)
 	if err != nil {
 		return err
 	}
 
-	asset.repoOwner = owner
-	asset.repoName = name
 	asset.Tag = *release.TagName
 	asset.Alias = opts.Alias
-	asset.httpClient = i.httpClient
 
-	// Install
-	dest := opts.Destination
-	if dest == "" {
-		dest = i.config.BinDir
-	}
-
-	if err := asset.Install(dest); err != nil {
+	// Install using orchestration function
+	if err := InstallAsset(ctx, asset, i.config, i.httpClient); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
 	// Calculate SHA256 of installed binary
-	binPath := filepath.Join(dest, installName)
+	binPath := filepath.Join(i.config.BinDir, installName)
 	sha256Hash, err := calculateFileSHA256(binPath)
 	if err != nil {
 		logger.Warn("Could not calculate SHA256: %v", err)
@@ -126,7 +119,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		SHA256:      sha256Hash,
 		InstalledAt: now,
 		UpdatedAt:   now,
-		InstallPath: dest,
+		InstallPath: i.config.BinDir,
 	}
 
 	if err := i.storage.Save(inst); err != nil {

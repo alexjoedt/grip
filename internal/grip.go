@@ -2,6 +2,7 @@ package grip
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -109,8 +110,8 @@ func CheckPathEnv() {
 }
 
 func SelfUpdate(version string) error {
-	// TODO: Refactor self-update to use new architecture
-	// For now, this uses the old approach with minimal changes
+	ctx := context.Background()
+	
 	currentVersion, err := semver.Parse(version)
 	if err != nil {
 		return err
@@ -121,72 +122,67 @@ func SelfUpdate(version string) error {
 		return err
 	}
 
-	// Create temporary GitHub client
+	// Fetch latest release
 	ghClient := NewGitHubClient()
-	release, err := ghClient.GetLatestRelease(context.Background(), owner, name)
+	release, err := ghClient.GetLatestRelease(ctx, owner, name)
 	if err != nil {
 		return err
 	}
 
-	// Create temporary config for parseAsset
+	// Check if update is needed
+	latestTag := *release.TagName
+	latestVersion, err := semver.Parse(latestTag)
+	if err != nil {
+		return err
+	}
+
+	if semver.Compare(currentVersion, latestVersion) >= 0 {
+		logger.Info("Newest version already installed")
+		return nil
+	}
+
+	// Parse asset for current platform
 	cfg, err := DefaultConfig()
 	if err != nil {
 		return err
 	}
 
-	asset, err := parseAsset(release.Assets, cfg)
+	asset, err := parseAsset(release.Assets, cfg, owner, name)
 	if err != nil {
 		return err
 	}
+	asset.Tag = latestTag
 
-	asset.repoOwner = owner
-	asset.repoName = name
-	asset.Tag = *release.TagName
-	asset.httpClient = &http.Client{}
-
-	assetVersion, err := semver.Parse(asset.Tag)
+	// Create workspace for download and unpack
+	ws, err := NewWorkspace(cfg.TempDir, "grip-selfupdate")
 	if err != nil {
-		return err
+		return fmt.Errorf("create workspace: %w", err)
+	}
+	defer ws.Cleanup()
+
+	// Download
+	downloader := NewDownloader(&http.Client{Timeout: 30 * time.Second})
+	if err := downloader.Download(ctx, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
+		return fmt.Errorf("download: %w", err)
 	}
 
-	res := semver.Compare(currentVersion, assetVersion)
-	if res >= 0 {
-		logger.Info("Newest version already installed")
-		return nil
-	}
-
-	defer func() {
-		os.RemoveAll(asset.tempDir)
-	}()
-
-	err = asset.init()
+	// Unpack
+	unpacker := NewUnpacker()
+	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
+	binPath, err := unpacker.Unpack(archivePath, ws.UnpackDir())
 	if err != nil {
-		return err
+		return fmt.Errorf("unpack: %w", err)
 	}
 
-	err = asset.download()
-	if err != nil {
-		return err
-	}
-	err = asset.unpack()
-	if err != nil {
-		return err
-	}
-
-	binPath, err := findExecutable(filepath.Join(asset.tempDir, "unpack"))
-	if err != nil {
-		return err
-	}
-
+	// Apply self-update
 	reader, err := os.Open(binPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("open binary: %w", err)
 	}
 	defer reader.Close()
 
-	err = selfupdate.Apply(reader, selfupdate.Options{})
-	if err != nil {
-		return err
+	if err := selfupdate.Apply(reader, selfupdate.Options{}); err != nil {
+		return fmt.Errorf("apply update: %w", err)
 	}
 
 	logger.Success("Grip updated successfully to %s", asset.Tag)
