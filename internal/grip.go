@@ -38,11 +38,6 @@ var (
 )
 
 func SelfUpdate(ctx context.Context, version string) error {
-	currentVersion, err := semver.Parse(version)
-	if err != nil {
-		return err
-	}
-
 	owner, name, err := ParseRepoPath(repository)
 	if err != nil {
 		return err
@@ -62,9 +57,17 @@ func SelfUpdate(ctx context.Context, version string) error {
 		return err
 	}
 
-	if semver.Compare(currentVersion, latestVersion) >= 0 {
-		logger.Info("Newest version already installed")
-		return nil
+	// Only check for newer version if current version is defined
+	if version != "" && version != "undefined" {
+		currentVersion, err := semver.Parse(version)
+		if err != nil {
+			return err
+		}
+
+		if semver.Compare(currentVersion, latestVersion) >= 0 {
+			logger.Info("Newest version already installed")
+			return nil
+		}
 	}
 
 	// Parse asset for current platform
