@@ -1,12 +1,14 @@
 package main
 
 import (
+	"net/http"
 	"os"
 
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
 	"github.com/alexjoedt/grip/cmd/remove"
 	"github.com/alexjoedt/grip/cmd/update"
+	grip "github.com/alexjoedt/grip/internal"
 	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/urfave/cli/v2"
 )
@@ -18,6 +20,32 @@ var (
 )
 
 func main() {
+	// Create config
+	cfg, err := grip.DefaultConfig()
+	if err != nil {
+		logger.Fatal("Failed to load config: %v", err)
+	}
+
+	// Ensure directories exist
+	if err := cfg.EnsureDirs(); err != nil {
+		logger.Fatal("Failed to create directories: %v", err)
+	}
+
+	// Create storage
+	storage, err := grip.NewStorage(cfg.StorePath, cfg)
+	if err != nil {
+		logger.Fatal("Failed to initialize storage: %v", err)
+	}
+
+	// Create GitHub client
+	ghClient := grip.NewGitHubClient()
+
+	// Create HTTP client
+	httpClient := &http.Client{}
+
+	// Create installer
+	installer := grip.NewInstaller(cfg, storage, ghClient, httpClient)
+
 	app := &cli.App{
 		Name:    "grip",
 		Usage:   "grip [flags] <command>",
@@ -37,10 +65,10 @@ func main() {
 	}
 
 	versionCommand(app)
-	install.Command(app)
-	update.Command(app)
-	list.Command(app)
-	remove.Command(app)
+	install.Command(app, installer, cfg)
+	update.Command(app, installer, storage, cfg)
+	list.Command(app, storage)
+	remove.Command(app, storage, cfg)
 
 	if err := app.Run(os.Args); err != nil {
 		logger.Error("%s", err.Error())

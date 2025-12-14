@@ -1,12 +1,11 @@
 package grip
 
 import (
-	"fmt"
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/alexjoedt/grip/internal/logger"
@@ -109,21 +108,9 @@ func CheckPathEnv() {
 	}
 }
 
-func ParseRepoPath(repo string) (string, string, error) {
-
-	if !strings.HasPrefix(repo, "github.com") {
-		return "", "", fmt.Errorf("invalid repo: %s", repo)
-	}
-
-	parts := strings.Split(repo, "/")
-	if len(parts) != 3 {
-		return "", "", fmt.Errorf("invalid repo path: %s", repo)
-	}
-
-	return parts[1], parts[2], nil
-}
-
 func SelfUpdate(version string) error {
+	// TODO: Refactor self-update to use new architecture
+	// For now, this uses the old approach with minimal changes
 	currentVersion, err := semver.Parse(version)
 	if err != nil {
 		return err
@@ -134,10 +121,28 @@ func SelfUpdate(version string) error {
 		return err
 	}
 
-	asset, err := GetLatest(owner, name)
+	// Create temporary GitHub client
+	ghClient := NewGitHubClient()
+	release, err := ghClient.GetLatestRelease(context.Background(), owner, name)
 	if err != nil {
 		return err
 	}
+
+	// Create temporary config for parseAsset
+	cfg, err := DefaultConfig()
+	if err != nil {
+		return err
+	}
+
+	asset, err := parseAsset(release.Assets, cfg)
+	if err != nil {
+		return err
+	}
+
+	asset.repoOwner = owner
+	asset.repoName = name
+	asset.Tag = *release.TagName
+	asset.httpClient = &http.Client{}
 
 	assetVersion, err := semver.Parse(asset.Tag)
 	if err != nil {
@@ -184,15 +189,7 @@ func SelfUpdate(version string) error {
 		return err
 	}
 
-	// it could be that grip is in the lockfile
-	entry, err := GetEntryByName(name)
-	if err != nil {
-		// grip isn't in the lockfile, no changes
-		logger.Info("Grip has no entry in the lockfile")
-	} else {
-		entry.Tag = asset.Tag
-		UpdateEntry(*entry)
-	}
+	logger.Success("Grip updated successfully to %s", asset.Tag)
 	return nil
 }
 

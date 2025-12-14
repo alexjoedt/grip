@@ -651,7 +651,11 @@ func TestParseAsset(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			asset, err := parseAsset(tc.assets)
+			// Create test config
+			cfg, err := DefaultConfig()
+			require.NoError(t, err)
+
+			asset, err := parseAsset(tc.assets, cfg)
 
 			if tc.expectError {
 				assert.Error(t, err)

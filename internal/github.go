@@ -3,43 +3,29 @@ package grip
 import (
 	"context"
 
-	"github.com/alexjoedt/grip/internal/logger"
+	"github.com/google/go-github/v56/github"
 )
 
-func GetLatest(owner, repo string) (*Asset, error) {
-	logger.Info("Fetching latest release for %s/%s", owner, repo)
-	release, _, err := ghClient.Repositories.GetLatestRelease(context.Background(), owner, repo)
-	if err != nil {
-		logger.Fatal("Failed to fetch latest release for %s/%s: %v", owner, repo, err)
-	}
-	asset, err := parseAsset(release.Assets)
-	if err != nil {
-		return nil, err
-	}
-
-	asset.repoOwner = owner
-	asset.repoName = repo
-	asset.Tag = *release.TagName
-
-	logger.Info("Found latest release: %s", asset.Tag)
-	return asset, nil
+// GitHubClientImpl implements GitHubClient using real GitHub API
+type GitHubClientImpl struct {
+	client *github.Client
 }
 
-func GetByTag(owner, repo, tag string) (*Asset, error) {
-	logger.Info("Fetching release %s for %s/%s", tag, owner, repo)
-	release, _, err := ghClient.Repositories.GetReleaseByTag(context.Background(), owner, repo, tag)
-	if err != nil {
-		logger.Fatal("Failed to fetch release %s for %s/%s: %v", tag, owner, repo, err)
+// NewGitHubClient creates a new GitHub client
+func NewGitHubClient() *GitHubClientImpl {
+	return &GitHubClientImpl{
+		client: github.NewClient(nil),
 	}
-	asset, err := parseAsset(release.Assets)
-	if err != nil {
-		return nil, err
-	}
+}
 
-	asset.repoOwner = owner
-	asset.repoName = repo
-	asset.Tag = *release.TagName
+// GetLatestRelease fetches the latest release
+func (g *GitHubClientImpl) GetLatestRelease(ctx context.Context, owner, repo string) (*github.RepositoryRelease, error) {
+	release, _, err := g.client.Repositories.GetLatestRelease(ctx, owner, repo)
+	return release, err
+}
 
-	logger.Info("Found release: %s", asset.Tag)
-	return asset, nil
+// GetReleaseByTag fetches a specific release by tag
+func (g *GitHubClientImpl) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*github.RepositoryRelease, error) {
+	release, _, err := g.client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
+	return release, err
 }

@@ -12,106 +12,87 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-type Config struct {
-	All   bool
-	Force bool
-}
-
-func Command(app *cli.App) *Config {
-	cfg := Config{}
-
+func Command(app *cli.App, storage *grip.Storage, cfg *grip.Config) {
 	cmd := &cli.Command{
 		Name:        "remove",
-		Usage:       "removes a installed executable by grip",
-		Description: "removes a installed executable by grip",
-		Action:      cfg.Action,
+		Usage:       "removes an installed executable by grip",
+		Description: "removes an installed executable by grip",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
-				Name:        "all",
-				Aliases:     []string{"a"},
-				Usage:       "removes all executeables installed by grip",
-				Destination: &cfg.All,
+				Name:    "all",
+				Aliases: []string{"a"},
+				Usage:   "removes all executables installed by grip",
 			},
 			&cli.BoolFlag{
-				Name:        "force",
-				Aliases:     []string{"f"},
-				Usage:       "forces remove without confirmation",
-				Destination: &cfg.Force,
+				Name:    "force",
+				Aliases: []string{"f"},
+				Usage:   "forces remove without confirmation",
 			},
 		},
-	}
-
-	app.Commands = append(app.Commands, cmd)
-	return &cfg
-}
-
-func (cfg *Config) Action(cCtx *cli.Context) error {
-
-	if cfg.All {
-
-		if !cfg.Force {
-			if !askForContinue() {
-				return nil
-			}
-		}
-
-		entries, err := grip.GetAllEntries()
-		if err != nil {
-			return err
-		}
-
-		for _, e := range entries {
-			p := filepath.Join(e.InstallPath, e.Name)
-			if _, err := os.Stat(p); err == nil {
-				err := os.Remove(p)
-				if err != nil {
-					logger.Error("Failed to remove: %s", p)
-				} else {
-					err := grip.DeleteEntryByRepo(e.Repo)
-					if err != nil {
-						return err
+		Action: func(c *cli.Context) error {
+			if c.Bool("all") {
+				if !c.Bool("force") {
+					if !askForContinue() {
+						return nil
 					}
+				}
+
+				installations, err := storage.List()
+				if err != nil {
+					return err
+				}
+
+				for _, inst := range installations {
+					p := filepath.Join(inst.InstallPath, inst.Name)
+					if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+						logger.Error("Failed to remove: %s", p)
+						continue
+					}
+
+					if err := storage.Delete(inst.Name); err != nil {
+						logger.Error("Failed to update storage: %v", err)
+						continue
+					}
+
 					logger.Success("Removed: %s", p)
 				}
-			}
-		}
-
-	} else {
-
-		arg := cCtx.Args().First()
-		isRepo := strings.HasPrefix(arg, "github.com")
-
-		var entry *grip.RepoEntry
-		var err error
-
-		if isRepo {
-			return fmt.Errorf("please provide the name or alias for the executeable")
-		} else {
-			entry, err = grip.GetEntryByName(arg)
-			if err != nil {
-				return err
-			}
-		}
-
-		if !cfg.Force {
-			if !askForContinue() {
 				return nil
 			}
-		}
 
-		err = os.Remove(filepath.Join(entry.InstallPath, entry.Name))
-		if err != nil {
-			return err
-		}
+			name := c.Args().First()
+			if name == "" {
+				return fmt.Errorf("please provide the name of the executable to remove")
+			}
 
-		err = grip.DeleteEntryByName(entry.Name)
-		if err != nil {
-			return err
-		}
+			if strings.HasPrefix(name, "github.com") {
+				return fmt.Errorf("please provide the name or alias, not the repo path")
+			}
 
+			inst, err := storage.Get(name)
+			if err != nil {
+				return fmt.Errorf("package not found: %s", name)
+			}
+
+			if !c.Bool("force") {
+				if !askForContinue() {
+					return nil
+				}
+			}
+
+			p := filepath.Join(inst.InstallPath, inst.Name)
+			if err := os.Remove(p); err != nil {
+				return fmt.Errorf("failed to remove binary: %w", err)
+			}
+
+			if err := storage.Delete(inst.Name); err != nil {
+				return fmt.Errorf("failed to update storage: %w", err)
+			}
+
+			logger.Success("Removed: %s", name)
+			return nil
+		},
 	}
-
-	return nil
+	app.Commands = append(app.Commands, cmd)
 }
 
 func askForContinue() bool {

@@ -276,21 +276,21 @@ func detectFileType(p string) (string, error) {
 }
 
 // parseAsset gets the right asset for OS and Arch
-func parseAsset(assets []*github.ReleaseAsset) (*Asset, error) {
+func parseAsset(assets []*github.ReleaseAsset, cfg *Config) (*Asset, error) {
 	var (
 		name  string
 		url   string
 		found bool
 	)
 
-	logger.Info("Parsing %d release assets for %s_%s", len(assets), currentOS, currentArch)
+	logger.Info("Parsing %d release assets for %s_%s", len(assets), cfg.OS, cfg.Arch)
 
 	for _, a := range assets {
 
 		name = strings.ToLower(*a.Name)
 		logger.Info("Evaluating asset: %s", name)
 
-		if containsCurrentOSAndArch(name) && isSupportedExt(name) {
+		if MatchesPlatform(name, cfg.OS, cfg.Arch, cfg.OSAliases, cfg.ArchAliases) && isSupportedExt(name) {
 			url = *a.BrowserDownloadURL
 			found = true
 			logger.Info("Found compatible asset: %s", name)
@@ -299,13 +299,13 @@ func parseAsset(assets []*github.ReleaseAsset) (*Asset, error) {
 	}
 
 	if !found {
-		return nil, fmt.Errorf("no asset found for %s_%s", currentOS, currentArch)
+		return nil, fmt.Errorf("no asset found for %s_%s", cfg.OS, cfg.Arch)
 	}
 
 	return &Asset{
 		Name:        name,
-		OS:          currentOS,
-		Arch:        currentArch,
+		OS:          cfg.OS,
+		Arch:        cfg.Arch,
 		DownloadURL: url,
 	}, nil
 }
