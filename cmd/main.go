@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
@@ -43,8 +44,16 @@ func main() {
 	// Create GitHub client
 	ghClient := grip.NewGitHubClient()
 
-	// Create HTTP client
-	httpClient := &http.Client{}
+	// Create HTTP client optimized for downloading large binary files
+	httpClient := &http.Client{
+		Timeout: 2 * time.Minute, // Max timeout for large downloads
+		Transport: &http.Transport{
+			MaxIdleConns:        10,
+			MaxIdleConnsPerHost: 5,
+			IdleConnTimeout:     90 * time.Second,
+			DisableCompression:  true, // Don't decompress, we handle archives
+		},
+	}
 
 	// Create installer
 	installer := grip.NewInstaller(cfg, storage, ghClient, httpClient)
