@@ -307,12 +307,16 @@ func unpackZip(packageFile io.Reader, destination string, bar *progressbar.Progr
 			return err
 		}
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
+			if err := os.MkdirAll(fpath, os.ModePerm); err != nil {
+				return err
+			}
 		} else {
 			var fdir string
 			if lastIndex := strings.LastIndex(fpath, string(os.PathSeparator)); lastIndex > -1 {
 				fdir = fpath[:lastIndex]
-				os.MkdirAll(fdir, os.ModePerm)
+				if err := os.MkdirAll(fdir, os.ModePerm); err != nil {
+					return err
+				}
 			}
 
 			f, err := os.OpenFile(
