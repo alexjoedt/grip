@@ -248,6 +248,9 @@ func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.Pr
 				return err
 			}
 		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			f, err := os.Create(target)
 			if err != nil {
 				return err
@@ -358,6 +361,9 @@ func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.Pro
 				return err
 			}
 		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			f, err := os.Create(target)
 			if err != nil {
 				return err
