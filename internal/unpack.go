@@ -19,6 +19,17 @@ import (
 
 type unpackFn func(io.Reader, string, *progressbar.ProgressBar) error
 
+// sanitizePath joins destination and name, then verifies the result stays
+// inside destination, preventing zip-slip / path traversal attacks.
+func sanitizePath(destination, name string) (string, error) {
+	target := filepath.Clean(filepath.Join(destination, name))
+	rel, err := filepath.Rel(destination, target)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
+	}
+	return target, nil
+}
+
 // Unpacker handles extracting various archive formats
 type Unpacker struct {
 	unpackers map[string]unpackFn
@@ -184,7 +195,10 @@ func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.Pro
 			return err
 		}
 
-		target := filepath.Join(destination, header.Name)
+		target, err := sanitizePath(destination, header.Name)
+		if err != nil {
+			return err
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
@@ -224,7 +238,10 @@ func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.Pr
 			return err
 		}
 
-		target := filepath.Join(destination, header.Name)
+		target, err := sanitizePath(destination, header.Name)
+		if err != nil {
+			return err
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
@@ -285,7 +302,10 @@ func unpackZip(packageFile io.Reader, destination string, bar *progressbar.Progr
 		}
 		defer rc.Close()
 
-		fpath := filepath.Join(destination, f.Name)
+		fpath, err := sanitizePath(destination, f.Name)
+		if err != nil {
+			return err
+		}
 		if f.FileInfo().IsDir() {
 			os.MkdirAll(fpath, os.ModePerm)
 		} else {
@@ -328,7 +348,10 @@ func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.Pro
 			return err
 		}
 
-		target := filepath.Join(destination, header.Name)
+		target, err := sanitizePath(destination, header.Name)
+		if err != nil {
+			return err
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
