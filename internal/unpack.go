@@ -358,6 +358,12 @@ func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.Pro
 				return err
 			}
 		case tar.TypeReg:
+			dir := filepath.Dir(target)
+			if _, err := os.Stat(dir); err != nil {
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					return err
+				}
+			}
 			f, err := os.Create(target)
 			if err != nil {
 				return err
