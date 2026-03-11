@@ -24,7 +24,7 @@ type unpackFn func(io.Reader, string, *progressbar.ProgressBar) error
 func sanitizePath(destination, name string) (string, error) {
 	target := filepath.Clean(filepath.Join(destination, name))
 	rel, err := filepath.Rel(destination, target)
-	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
 	}
 	return target, nil
