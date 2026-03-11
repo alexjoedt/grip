@@ -515,7 +515,7 @@ func createMaliciousZip(t *testing.T, entryName string) []byte {
 func TestSanitizePath(t *testing.T) {
 	t.Parallel()
 
-	dest := "/tmp/safedest"
+	dest := filepath.Join(t.TempDir(), "safedest")
 
 	tests := []struct {
 		name        string
