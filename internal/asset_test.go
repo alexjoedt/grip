@@ -515,7 +515,7 @@ func createMaliciousZip(t *testing.T, entryName string) []byte {
 func TestSanitizePath(t *testing.T) {
 	t.Parallel()
 
-	dest := "/tmp/safedest"
+	dest := filepath.Join(t.TempDir(), "safedest")
 
 	tests := []struct {
 		name        string
@@ -526,7 +526,7 @@ func TestSanitizePath(t *testing.T) {
 		{"file at root", "file.txt", false},
 		{"traversal with ..", "../../../etc/passwd", true},
 		{"traversal mixed", "subdir/../../etc/passwd", true},
-		{"absolute path entry", "/etc/passwd", false}, // filepath.Join makes it safe
+		{"absolute path entry", string(os.PathSeparator) + "etc" + string(os.PathSeparator) + "passwd", true},
 		{"double dot disguised", "subdir/../../../etc/shadow", true},
 	}
 
