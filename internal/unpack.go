@@ -21,7 +21,11 @@ type unpackFn func(io.Reader, string, *progressbar.ProgressBar) error
 
 // sanitizePath joins destination and name, then verifies the result stays
 // inside destination, preventing zip-slip / path traversal attacks.
+// Absolute paths in archive entries are rejected explicitly.
 func sanitizePath(destination, name string) (string, error) {
+	if filepath.IsAbs(name) {
+		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
+	}
 	target := filepath.Clean(filepath.Join(destination, name))
 	rel, err := filepath.Rel(destination, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
