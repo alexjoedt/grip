@@ -2,6 +2,7 @@ package grip
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -52,7 +53,8 @@ func createMockResponse(statusCode int, body string, contentLength int64) *http.
 }
 
 // createTestTarGz creates a test tar.gz archive with a mock executable
-func createTestTarGz() ([]byte, error) {
+func createTestTarGz(t *testing.T) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -72,32 +74,21 @@ func createTestTarGz() ([]byte, error) {
 
 	// Pad with some additional bytes to make it look more like a real binary
 	execContent := append(machOHeader, make([]byte, 1000)...)
-	
+
 	header := &tar.Header{
 		Name: "test-executable",
 		Mode: 0755,
 		Size: int64(len(execContent)),
 	}
-	
-	if err := tw.WriteHeader(header); err != nil {
-		return nil, err
-	}
-	
-	if _, err := tw.Write(execContent); err != nil {
-		return nil, err
-	}
 
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	if err := gw.Close(); err != nil {
-		return nil, err
-	}
-	
-	return buf.Bytes(), nil
+	require.NoError(t, tw.WriteHeader(header))
+	_, err := tw.Write(execContent)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	return buf.Bytes()
 }
-
-
 
 // Test Downloader service
 func TestDownloader(t *testing.T) {
@@ -145,7 +136,6 @@ func TestDownloader(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -169,7 +159,7 @@ func TestDownloader(t *testing.T) {
 				assert.NoError(t, err)
 				downloadPath := filepath.Join(destDir, tc.filename)
 				assert.FileExists(t, downloadPath)
-				
+
 				content, err := os.ReadFile(downloadPath)
 				assert.NoError(t, err)
 				assert.Equal(t, "test file content", string(content))
@@ -188,8 +178,7 @@ func TestUnpacker(t *testing.T) {
 		t.Parallel()
 
 		// Create test archive
-		tarData, err := createTestTarGz()
-		require.NoError(t, err)
+		tarData := createTestTarGz(t)
 
 		// Write to temp file
 		tempDir := filepath.Join(os.TempDir(), "test-unpack")
@@ -231,7 +220,7 @@ func TestUnpacker(t *testing.T) {
 		t.Parallel()
 
 		unpacker := NewUnpacker()
-		
+
 		assert.True(t, unpacker.IsSupportedFormat("test.tar.gz"))
 		assert.True(t, unpacker.IsSupportedFormat("test.zip"))
 		assert.True(t, unpacker.IsSupportedFormat("test.tar.bz2"))
@@ -266,7 +255,7 @@ func TestBinaryInstaller(t *testing.T) {
 		// Verify
 		installedPath := filepath.Join(binDir, "test-binary")
 		assert.FileExists(t, installedPath)
-		
+
 		info, err := os.Stat(installedPath)
 		assert.NoError(t, err)
 		assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
@@ -328,11 +317,11 @@ func TestAssetBinaryName(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name     string
-		alias    string
-		repoName string
+		name      string
+		alias     string
+		repoName  string
 		assetName string
-		expected string
+		expected  string
 	}{
 		{
 			name:     "with alias",
@@ -356,7 +345,6 @@ func TestAssetBinaryName(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -383,13 +371,13 @@ func TestParseAsset(t *testing.T) {
 	currentArch := cfg.Arch
 
 	testCases := []struct {
-		name        string
-		assets      []*github.ReleaseAsset
-		repoOwner   string
-		repoName    string
-		expectError bool
-		errorMsg    string
-		expectedOS  string
+		name         string
+		assets       []*github.ReleaseAsset
+		repoOwner    string
+		repoName     string
+		expectError  bool
+		errorMsg     string
+		expectedOS   string
 		expectedArch string
 	}{
 		{
@@ -408,8 +396,8 @@ func TestParseAsset(t *testing.T) {
 					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
 				},
 			},
-			repoOwner:   "test-owner",
-			repoName:    "test-repo",
+			repoOwner:    "test-owner",
+			repoName:     "test-repo",
 			expectError:  false,
 			expectedOS:   currentOS,
 			expectedArch: currentArch,
@@ -455,7 +443,6 @@ func TestParseAsset(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -488,4 +475,118 @@ func TestParseAsset(t *testing.T) {
 // stringPtr is a helper function to create string pointers for test data
 func stringPtr(s string) *string {
 	return &s
+}
+
+// createMaliciousTarGz creates a tar.gz archive with a path traversal entry.
+func createMaliciousTarGz(t *testing.T, entryName string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	content := []byte("malicious content")
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name: entryName,
+		Mode: 0644,
+		Size: int64(len(content)),
+	}))
+	_, err := tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+	return buf.Bytes()
+}
+
+// createMaliciousZip creates a zip archive with a path traversal entry.
+func createMaliciousZip(t *testing.T, entryName string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	w, err := zw.Create(entryName)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("malicious content"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+// TestSanitizePath verifies the zip-slip protection helper.
+func TestSanitizePath(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "safedest")
+
+	tests := []struct {
+		name        string
+		entry       string
+		expectError bool
+	}{
+		{"normal file", "subdir/file.txt", false},
+		{"file at root", "file.txt", false},
+		{"traversal with ..", "../../../etc/passwd", true},
+		{"traversal mixed", "subdir/../../etc/passwd", true},
+		{"absolute path entry", string(os.PathSeparator) + "etc" + string(os.PathSeparator) + "passwd", true},
+		{"double dot disguised", "subdir/../../../etc/shadow", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := sanitizePath(dest, tc.entry)
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "path traversal attempt")
+				assert.Empty(t, got)
+			} else {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, got)
+			}
+		})
+	}
+}
+
+// TestUnpackerZipSlip verifies that crafted archives with traversal paths are rejected.
+func TestUnpackerZipSlip(t *testing.T) {
+	t.Parallel()
+
+	maliciousEntries := []string{
+		"../../../etc/passwd",
+		"subdir/../../outside.txt",
+	}
+
+	for _, entry := range maliciousEntries {
+
+		t.Run("tar.gz traversal: "+entry, func(t *testing.T) {
+			t.Parallel()
+
+			data := createMaliciousTarGz(t, entry)
+
+			tempDir := t.TempDir()
+			archivePath := filepath.Join(tempDir, "evil.tar.gz")
+			require.NoError(t, os.WriteFile(archivePath, data, 0644))
+
+			unpacker := NewUnpacker()
+			destDir := filepath.Join(tempDir, "output")
+			_, err := unpacker.Unpack(archivePath, destDir)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "path traversal attempt")
+		})
+
+		t.Run("zip traversal: "+entry, func(t *testing.T) {
+			t.Parallel()
+
+			data := createMaliciousZip(t, entry)
+
+			tempDir := t.TempDir()
+			archivePath := filepath.Join(tempDir, "evil.zip")
+			require.NoError(t, os.WriteFile(archivePath, data, 0644))
+
+			unpacker := NewUnpacker()
+			destDir := filepath.Join(tempDir, "output")
+			_, err := unpacker.Unpack(archivePath, destDir)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "path traversal attempt")
+		})
+	}
 }

@@ -19,6 +19,21 @@ import (
 
 type unpackFn func(io.Reader, string, *progressbar.ProgressBar) error
 
+// sanitizePath joins destination and name, then verifies the result stays
+// inside destination, preventing zip-slip / path traversal attacks.
+// Absolute paths in archive entries are rejected explicitly.
+func sanitizePath(destination, name string) (string, error) {
+	if filepath.IsAbs(name) {
+		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
+	}
+	target := filepath.Clean(filepath.Join(destination, name))
+	rel, err := filepath.Rel(destination, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
+	}
+	return target, nil
+}
+
 // Unpacker handles extracting various archive formats
 type Unpacker struct {
 	unpackers map[string]unpackFn
@@ -184,7 +199,10 @@ func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.Pro
 			return err
 		}
 
-		target := filepath.Join(destination, header.Name)
+		target, err := sanitizePath(destination, header.Name)
+		if err != nil {
+			return err
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
@@ -224,13 +242,19 @@ func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.Pr
 			return err
 		}
 
-		target := filepath.Join(destination, header.Name)
+		target, err := sanitizePath(destination, header.Name)
+		if err != nil {
+			return err
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
 				return err
 			}
 		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			f, err := os.Create(target)
 			if err != nil {
 				return err
@@ -278,33 +302,40 @@ func unpackZip(packageFile io.Reader, destination string, bar *progressbar.Progr
 	defer r.Close()
 
 	for _, f := range r.File {
+		if err := func(f *zip.File) error {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			defer rc.Close()
 
-		rc, err := f.Open()
-		if err != nil {
+			fpath, err := sanitizePath(destination, f.Name)
+			if err != nil {
+				return err
+			}
+			if f.FileInfo().IsDir() {
+				os.MkdirAll(fpath, os.ModePerm)
+			} else {
+				var fdir string
+				if lastIndex := strings.LastIndex(fpath, string(os.PathSeparator)); lastIndex > -1 {
+					fdir = fpath[:lastIndex]
+					os.MkdirAll(fdir, os.ModePerm)
+				}
+
+				outFile, err := os.OpenFile(
+					fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+				if err != nil {
+					return err
+				}
+				defer outFile.Close()
+				_, err = io.Copy(outFile, rc)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}(f); err != nil {
 			return err
-		}
-		defer rc.Close()
-
-		fpath := filepath.Join(destination, f.Name)
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
-		} else {
-			var fdir string
-			if lastIndex := strings.LastIndex(fpath, string(os.PathSeparator)); lastIndex > -1 {
-				fdir = fpath[:lastIndex]
-				os.MkdirAll(fdir, os.ModePerm)
-			}
-
-			f, err := os.OpenFile(
-				fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(f, rc)
-			if err != nil {
-				return err
-			}
-			f.Close()
 		}
 	}
 	return nil
@@ -328,13 +359,19 @@ func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.Pro
 			return err
 		}
 
-		target := filepath.Join(destination, header.Name)
+		target, err := sanitizePath(destination, header.Name)
+		if err != nil {
+			return err
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
 				return err
 			}
 		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return err
+			}
 			f, err := os.Create(target)
 			if err != nil {
 				return err
