@@ -181,14 +181,13 @@ func (u *Unpacker) detectFileType(path string) (string, error) {
 }
 
 func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	gzr, err := gzip.NewReader(packageFile)
+	gzr, err := gzip.NewReader(io.TeeReader(packageFile, bar))
 	if err != nil {
 		return err
 	}
 	defer gzr.Close()
 
-	multi := io.MultiReader(io.TeeReader(gzr, bar))
-	tr := tar.NewReader(multi)
+	tr := tar.NewReader(gzr)
 
 	for {
 		header, err := tr.Next()
@@ -228,11 +227,9 @@ func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.Pro
 }
 
 func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	bzr := bzip2.NewReader(packageFile)
+	bzr := bzip2.NewReader(io.TeeReader(packageFile, bar))
 
-	multi := io.MultiReader(io.TeeReader(bzr, bar))
-
-	tr := tar.NewReader(multi)
+	tr := tar.NewReader(bzr)
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -269,9 +266,7 @@ func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.Pr
 }
 
 func unpackBz2(packageReader io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	bz2Reader := bzip2.NewReader(packageReader)
-
-	multi := io.MultiReader(io.TeeReader(bz2Reader, bar))
+	bz2Reader := bzip2.NewReader(io.TeeReader(packageReader, bar))
 
 	outFile, err := os.Create(destination)
 	if err != nil {
@@ -279,7 +274,7 @@ func unpackBz2(packageReader io.Reader, destination string, bar *progressbar.Pro
 	}
 	defer outFile.Close()
 
-	_, err = io.Copy(outFile, multi)
+	_, err = io.Copy(outFile, bz2Reader)
 	return err
 }
 
@@ -343,13 +338,12 @@ func unpackZip(packageFile io.Reader, destination string, bar *progressbar.Progr
 
 func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
 
-	xzr, err := xz.NewReader(packageFile)
+	xzr, err := xz.NewReader(io.TeeReader(packageFile, bar))
 	if err != nil {
 		return err
 	}
-	multi := io.MultiReader(io.TeeReader(xzr, bar))
 
-	tr := tar.NewReader(multi)
+	tr := tar.NewReader(xzr)
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
