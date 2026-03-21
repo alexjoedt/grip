@@ -212,7 +212,9 @@ func unpackTar(r io.Reader, destination string) error {
 				return err
 			}
 			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+				if cerr := f.Close(); cerr != nil {
+					return errors.Join(err, cerr)
+				}
 				return err
 			}
 			if err := f.Close(); err != nil {
