@@ -257,11 +257,6 @@ func parseOldLockFile(path string) ([]repoEntry, error) {
 	return entries, scanner.Err()
 }
 
-// CalculateFileSHA256 computes the SHA256 hash of a file (exported for use in commands)
-func CalculateFileSHA256(path string) (string, error) {
-	return calculateFileSHA256(path)
-}
-
 // calculateFileSHA256 computes the SHA256 hash of a file
 func calculateFileSHA256(path string) (string, error) {
 	f, err := os.Open(path)
