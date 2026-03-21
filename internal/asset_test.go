@@ -146,12 +146,11 @@ func TestDownloader(t *testing.T) {
 			tc.mockSetup(mockTransport)
 
 			httpClient := newMockHTTPClient(mockTransport)
-			downloader := NewDownloader(httpClient)
 			destDir := filepath.Join(os.TempDir(), "test-download-"+tc.filename)
 			defer os.RemoveAll(destDir)
 
 			ctx := context.Background()
-			err := downloader.Download(ctx, tc.downloadURL, destDir, tc.filename)
+			err := Download(ctx, httpClient, tc.downloadURL, destDir, tc.filename)
 
 			if tc.expectError {
 				assert.Error(t, err)
@@ -192,9 +191,8 @@ func TestUnpacker(t *testing.T) {
 		require.NoError(t, os.WriteFile(archivePath, tarData, 0644))
 
 		// Unpack
-		unpacker := NewUnpacker()
 		destDir := filepath.Join(tempDir, "output")
-		execPath, err := unpacker.Unpack(archivePath, destDir)
+		execPath, err := Unpack(archivePath, destDir)
 
 		assert.NoError(t, err)
 		assert.NotEmpty(t, execPath)
@@ -211,9 +209,8 @@ func TestUnpacker(t *testing.T) {
 		archivePath := filepath.Join(tempDir, "test.txt")
 		require.NoError(t, os.WriteFile(archivePath, []byte("not an archive"), 0644))
 
-		unpacker := NewUnpacker()
 		destDir := filepath.Join(tempDir, "output")
-		_, err := unpacker.Unpack(archivePath, destDir)
+		_, err := Unpack(archivePath, destDir)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported archive format")
@@ -222,13 +219,11 @@ func TestUnpacker(t *testing.T) {
 	t.Run("IsSupportedFormat", func(t *testing.T) {
 		t.Parallel()
 
-		unpacker := NewUnpacker()
-
-		assert.True(t, unpacker.IsSupportedFormat("test.tar.gz"))
-		assert.True(t, unpacker.IsSupportedFormat("test.zip"))
-		assert.True(t, unpacker.IsSupportedFormat("test.tar.bz2"))
-		assert.False(t, unpacker.IsSupportedFormat("test.txt"))
-		assert.False(t, unpacker.IsSupportedFormat("test.exe"))
+		assert.True(t, IsSupportedFormat("test.tar.gz"))
+		assert.True(t, IsSupportedFormat("test.zip"))
+		assert.True(t, IsSupportedFormat("test.tar.bz2"))
+		assert.False(t, IsSupportedFormat("test.txt"))
+		assert.False(t, IsSupportedFormat("test.exe"))
 	})
 }
 
@@ -249,10 +244,7 @@ func TestBinaryInstaller(t *testing.T) {
 
 		// Install
 		binDir := filepath.Join(tempDir, "bin")
-		installer, err := NewBinaryInstaller(binDir)
-		require.NoError(t, err)
-
-		err = installer.Install(srcPath, "test-binary")
+		err := InstallBinary(srcPath, binDir, "test-binary")
 		assert.NoError(t, err)
 
 		// Verify
@@ -267,7 +259,7 @@ func TestBinaryInstaller(t *testing.T) {
 	t.Run("invalid bin directory", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewBinaryInstaller("")
+		err := InstallBinary("dummy-src", "", "name")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot be empty")
 	})
@@ -275,7 +267,7 @@ func TestBinaryInstaller(t *testing.T) {
 	t.Run("relative path rejected", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewBinaryInstaller("relative/path")
+		err := InstallBinary("dummy-src", "relative/path", "name")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "must be absolute path")
 	})
@@ -569,9 +561,8 @@ func TestUnpackerZipSlip(t *testing.T) {
 			archivePath := filepath.Join(tempDir, "evil.tar.gz")
 			require.NoError(t, os.WriteFile(archivePath, data, 0644))
 
-			unpacker := NewUnpacker()
 			destDir := filepath.Join(tempDir, "output")
-			_, err := unpacker.Unpack(archivePath, destDir)
+			_, err := Unpack(archivePath, destDir)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "path traversal attempt")
 		})
@@ -585,9 +576,8 @@ func TestUnpackerZipSlip(t *testing.T) {
 			archivePath := filepath.Join(tempDir, "evil.zip")
 			require.NoError(t, os.WriteFile(archivePath, data, 0644))
 
-			unpacker := NewUnpacker()
 			destDir := filepath.Join(tempDir, "output")
-			_, err := unpacker.Unpack(archivePath, destDir)
+			_, err := Unpack(archivePath, destDir)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "path traversal attempt")
 		})
@@ -977,8 +967,7 @@ func TestUnpackerNoExecutableFound(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "noexec.tar.gz")
 	require.NoError(t, os.WriteFile(archivePath, buf.Bytes(), 0o644))
 
-	unpacker := NewUnpacker()
-	_, err = unpacker.Unpack(archivePath, filepath.Join(tempDir, "out"))
+	_, err = Unpack(archivePath, filepath.Join(tempDir, "out"))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no executable found in archive")
 }
@@ -991,8 +980,7 @@ func TestUnpackerUnpackZip(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "test.zip")
 	require.NoError(t, os.WriteFile(archivePath, createTestZipWithExec(t), 0o644))
 
-	unpacker := NewUnpacker()
-	execPath, err := unpacker.Unpack(archivePath, filepath.Join(tempDir, "out"))
+	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, execPath)
 	assert.FileExists(t, execPath)
@@ -1006,8 +994,7 @@ func TestUnpackerUnpackTarXz(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "test.tar.xz")
 	require.NoError(t, os.WriteFile(archivePath, createTestTarXz(t), 0o644))
 
-	unpacker := NewUnpacker()
-	execPath, err := unpacker.Unpack(archivePath, filepath.Join(tempDir, "out"))
+	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, execPath)
 	assert.FileExists(t, execPath)
