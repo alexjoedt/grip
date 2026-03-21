@@ -1,10 +1,7 @@
 package grip
 
 import (
-	"context"
 	"fmt"
-	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/alexjoedt/grip/internal/logger"
@@ -66,35 +63,4 @@ func parseAsset(assets []*github.ReleaseAsset, cfg *Config, repoOwner, repoName 
 	return nil, fmt.Errorf("no asset found for %s_%s", cfg.OS, cfg.Arch)
 }
 
-// InstallAsset orchestrates the complete installation workflow
-func InstallAsset(ctx context.Context, asset *Asset, cfg *Config, httpClient *http.Client) error {
-	// Create workspace
-	ws, err := NewWorkspace(cfg.TempDir, asset.Name)
-	if err != nil {
-		return fmt.Errorf("create workspace: %w", err)
-	}
-	defer func() {
-		if cleanupErr := ws.Cleanup(); cleanupErr != nil {
-			logger.Error("Failed to cleanup workspace: %v", cleanupErr)
-		}
-	}()
 
-	// Download asset
-	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
-	if err := Download(ctx, httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
-		return fmt.Errorf("download: %w", err)
-	}
-
-	// Unpack archive
-	execPath, err := Unpack(archivePath, ws.UnpackDir())
-	if err != nil {
-		return fmt.Errorf("unpack: %w", err)
-	}
-
-	// Install binary
-	if err := InstallBinary(execPath, cfg.BinDir, asset.BinaryName()); err != nil {
-		return fmt.Errorf("install: %w", err)
-	}
-
-	return nil
-}

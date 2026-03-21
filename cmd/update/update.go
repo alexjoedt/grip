@@ -44,7 +44,7 @@ func Command(ctx context.Context, app *cli.App, installer *grip.Installer, stora
 		Name:  "self-update",
 		Usage: "updates grip",
 		Action: func(c *cli.Context) error {
-			return grip.SelfUpdate(ctx, app.Version)
+			return grip.SelfUpdate(ctx, app.Version, installer)
 		},
 	}
 

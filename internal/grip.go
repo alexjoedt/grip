@@ -3,11 +3,7 @@ package grip
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
-	"path/filepath"
-	"runtime"
-	"time"
 
 	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/alexjoedt/grip/internal/semver"
@@ -20,32 +16,27 @@ const (
 	repository = "github.com/alexjoedt/grip"
 )
 
-var (
-	currentOS   = runtime.GOOS
-	currentArch = runtime.GOARCH
-
-	// osAliases common aliases used in release packages
-	osAliases = map[string][]string{
-		"darwin": {"macos"},
-		"linux":  {"musl"},
+func SelfUpdate(ctx context.Context, version string, installer *Installer) error {
+	if installer == nil {
+		return fmt.Errorf("installer is required")
+	}
+	if installer.ghClient == nil {
+		return fmt.Errorf("installer: GitHub client is required")
+	}
+	if installer.config == nil {
+		return fmt.Errorf("installer: config is required")
+	}
+	if installer.httpClient == nil {
+		return fmt.Errorf("installer: HTTP client is required")
 	}
 
-	// archAliases common aliases used in release packages
-	archAliases = map[string][]string{
-		"amd64": {"x86_64"},
-		"arm64": {"aarch64", "universal"},
-	}
-)
-
-func SelfUpdate(ctx context.Context, version string) error {
 	owner, name, err := ParseRepoPath(repository)
 	if err != nil {
 		return err
 	}
 
 	// Fetch latest release
-	ghClient := NewGitHubClient()
-	release, err := ghClient.GetLatestRelease(ctx, owner, name)
+	release, err := installer.ghClient.GetLatestRelease(ctx, owner, name)
 	if err != nil {
 		return err
 	}
@@ -71,35 +62,18 @@ func SelfUpdate(ctx context.Context, version string) error {
 	}
 
 	// Parse asset for current platform
-	cfg, err := DefaultConfig()
-	if err != nil {
-		return err
-	}
-
-	asset, err := parseAsset(release.Assets, cfg, owner, name)
+	asset, err := parseAsset(release.Assets, installer.config, owner, name)
 	if err != nil {
 		return err
 	}
 	asset.Tag = latestTag
 
-	// Create workspace for download and unpack
-	ws, err := NewWorkspace(cfg.TempDir, "grip-selfupdate")
+	// Download and unpack using installer
+	binPath, cleanup, err := installer.downloadAndUnpack(ctx, asset)
 	if err != nil {
-		return fmt.Errorf("create workspace: %w", err)
+		return err
 	}
-	defer ws.Cleanup()
-
-	// Download
-	if err := Download(ctx, &http.Client{Timeout: 30 * time.Second}, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
-		return fmt.Errorf("download: %w", err)
-	}
-
-	// Unpack
-	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
-	binPath, err := Unpack(archivePath, ws.UnpackDir())
-	if err != nil {
-		return fmt.Errorf("unpack: %w", err)
-	}
+	defer cleanup()
 
 	// Apply self-update
 	reader, err := os.Open(binPath)
