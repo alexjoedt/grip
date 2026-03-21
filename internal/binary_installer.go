@@ -7,36 +7,34 @@ import (
 	"path/filepath"
 )
 
-// BinaryInstaller handles installing binary executables to a target directory
-type BinaryInstaller struct {
-	binDir string
-}
-
-// NewBinaryInstaller creates a new BinaryInstaller for the given binary directory
-func NewBinaryInstaller(binDir string) (*BinaryInstaller, error) {
+// InstallBinary copies the executable at srcPath into binDir with the given
+// binaryName and sets executable permissions (0755).
+func InstallBinary(srcPath, binDir, binaryName string) error {
 	if binDir == "" {
-		return nil, fmt.Errorf("binary directory cannot be empty")
+		return fmt.Errorf("binary directory cannot be empty")
 	}
 
 	if !filepath.IsAbs(binDir) {
-		return nil, fmt.Errorf("binary directory must be absolute path: %s", binDir)
+		return fmt.Errorf("binary directory must be absolute path: %s", binDir)
 	}
 
 	if err := os.MkdirAll(binDir, 0755); err != nil {
-		return nil, fmt.Errorf("create binary directory: %w", err)
+		return fmt.Errorf("create binary directory: %w", err)
 	}
 
-	return &BinaryInstaller{
-		binDir: binDir,
-	}, nil
-}
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("source binary not found: %w", err)
+	}
 
-// Install copies an executable to the binary directory and sets proper permissions
-// srcPath is the path to the source executable
-// binaryName is the name the binary should have in the bin directory
-func (b *BinaryInstaller) Install(srcPath, binaryName string) error {
-	if err := b.validateSource(srcPath); err != nil {
-		return err
+	if srcInfo.IsDir() {
+		return fmt.Errorf("source is a directory, not a file: %s", srcPath)
+	}
+
+	if srcInfo.Mode()&0111 == 0 {
+		if err := os.Chmod(srcPath, 0755); err != nil {
+			return fmt.Errorf("source is not executable and cannot set permissions: %w", err)
+		}
 	}
 
 	src, err := os.Open(srcPath)
@@ -45,12 +43,7 @@ func (b *BinaryInstaller) Install(srcPath, binaryName string) error {
 	}
 	defer src.Close()
 
-	srcInfo, err := src.Stat()
-	if err != nil {
-		return fmt.Errorf("stat source binary: %w", err)
-	}
-
-	destPath := filepath.Join(b.binDir, binaryName)
+	destPath := filepath.Join(binDir, binaryName)
 	dest, err := os.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("create destination binary: %w", err)
@@ -58,8 +51,7 @@ func (b *BinaryInstaller) Install(srcPath, binaryName string) error {
 	defer dest.Close()
 
 	bar := NewProgressBar(int(srcInfo.Size()), "[cyan][3/3][reset] Installing")
-	_, err = io.Copy(io.MultiWriter(dest, bar), src)
-	if err != nil {
+	if _, err = io.Copy(io.MultiWriter(dest, bar), src); err != nil {
 		return fmt.Errorf("copy binary: %w", err)
 	}
 	fmt.Println() // new line after progress bar
@@ -69,31 +61,4 @@ func (b *BinaryInstaller) Install(srcPath, binaryName string) error {
 	}
 
 	return nil
-}
-
-// validateSource ensures the source path is valid and executable
-func (b *BinaryInstaller) validateSource(srcPath string) error {
-	info, err := os.Stat(srcPath)
-	if err != nil {
-		return fmt.Errorf("source binary not found: %w", err)
-	}
-
-	if info.IsDir() {
-		return fmt.Errorf("source is a directory, not a file: %s", srcPath)
-	}
-
-	// Check if file has execute permission
-	if info.Mode()&0111 == 0 {
-		// Try to set execute permission
-		if err := os.Chmod(srcPath, 0755); err != nil {
-			return fmt.Errorf("source is not executable and cannot set permissions: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// BinDir returns the binary installation directory
-func (b *BinaryInstaller) BinDir() string {
-	return b.binDir
 }

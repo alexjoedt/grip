@@ -46,13 +46,11 @@ func (a *Asset) BinaryName() string {
 func parseAsset(assets []*github.ReleaseAsset, cfg *Config, repoOwner, repoName string) (*Asset, error) {
 	logger.Info("Parsing %d release assets for %s_%s", len(assets), cfg.OS, cfg.Arch)
 
-	unpacker := NewUnpacker()
-
 	for _, a := range assets {
 		name := strings.ToLower(*a.Name)
 		logger.Info("Evaluating asset: %s", name)
 
-		if MatchesPlatform(name, cfg.OS, cfg.Arch, cfg.OSAliases, cfg.ArchAliases) && unpacker.IsSupportedFormat(name) {
+		if MatchesPlatform(name, cfg.OS, cfg.Arch, cfg.OSAliases, cfg.ArchAliases) && IsSupportedFormat(name) {
 			logger.Info("Found compatible asset: %s", name)
 			return &Asset{
 				Name:        name,
@@ -82,26 +80,19 @@ func InstallAsset(ctx context.Context, asset *Asset, cfg *Config, httpClient *ht
 	}()
 
 	// Download asset
-	downloader := NewDownloader(httpClient)
 	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
-	if err := downloader.Download(ctx, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
+	if err := Download(ctx, httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 
 	// Unpack archive
-	unpacker := NewUnpacker()
-	execPath, err := unpacker.Unpack(archivePath, ws.UnpackDir())
+	execPath, err := Unpack(archivePath, ws.UnpackDir())
 	if err != nil {
 		return fmt.Errorf("unpack: %w", err)
 	}
 
 	// Install binary
-	installer, err := NewBinaryInstaller(cfg.BinDir)
-	if err != nil {
-		return fmt.Errorf("create installer: %w", err)
-	}
-
-	if err := installer.Install(execPath, asset.BinaryName()); err != nil {
+	if err := InstallBinary(execPath, cfg.BinDir, asset.BinaryName()); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 

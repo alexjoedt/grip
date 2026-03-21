@@ -34,34 +34,35 @@ func sanitizePath(destination, name string) (string, error) {
 	return target, nil
 }
 
-// Unpacker handles extracting various archive formats
-type Unpacker struct {
-	unpackers map[string]unpackFn
+var unpackers = map[string]unpackFn{
+	".tar.gz":  unpackTarGz,
+	".tar.bz2": unpackTarBz2,
+	".tbz":     unpackTarBz2,
+	".zip":     unpackZip,
+	".tar.xz":  unpackTarXz,
+	".bz2":     unpackBz2,
 }
 
-// NewUnpacker creates a new Unpacker with support for common archive formats
-func NewUnpacker() *Unpacker {
-	return &Unpacker{
-		unpackers: map[string]unpackFn{
-			".tar.gz":  unpackTarGz,
-			".tar.bz2": unpackTarBz2,
-			".tbz":     unpackTarBz2,
-			".zip":     unpackZip,
-			".tar.xz":  unpackTarXz,
-			".bz2":     unpackBz2,
-		},
-	}
+// orderedExts lists supported archive extensions sorted by descending length
+// so that longer suffixes (e.g. .tar.bz2) are matched before shorter ones (e.g. .bz2).
+var orderedExts = []string{
+	".tar.bz2",
+	".tar.gz",
+	".tar.xz",
+	".tbz",
+	".zip",
+	".bz2",
 }
 
-// Unpack extracts an archive file to the destination directory
-// Returns the path to the executable binary found in the archive
-func (u *Unpacker) Unpack(archivePath, destDir string) (string, error) {
+// Unpack extracts an archive file to the destination directory.
+// Returns the path to the executable binary found in the archive.
+func Unpack(archivePath, destDir string) (string, error) {
 	archiveInfo, err := os.Stat(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("stat archive: %w", err)
 	}
 
-	ext, unpackFn, err := u.getUnpackFn(archivePath)
+	ext, fn, err := getUnpackFn(archivePath)
 	if err != nil {
 		return "", err
 	}
@@ -84,12 +85,12 @@ func (u *Unpacker) Unpack(archivePath, destDir string) (string, error) {
 	}
 
 	bar := NewProgressBar(int(archiveInfo.Size()), "[cyan][2/3][reset] Unpacking")
-	if err := unpackFn(archive, unpackDest, bar); err != nil {
+	if err := fn(archive, unpackDest, bar); err != nil {
 		return "", fmt.Errorf("unpack archive: %w", err)
 	}
 	fmt.Println() // new line after progress bar
 
-	execPath, err := u.findExecutable(destDir)
+	execPath, err := findExecutable(destDir)
 	if err != nil {
 		return "", fmt.Errorf("find executable: %w", err)
 	}
@@ -97,29 +98,30 @@ func (u *Unpacker) Unpack(archivePath, destDir string) (string, error) {
 	return execPath, nil
 }
 
-// IsSupportedFormat checks if the filename has a supported archive extension
-func (u *Unpacker) IsSupportedFormat(filename string) bool {
-	for ext := range u.unpackers {
-		if strings.HasSuffix(strings.ToLower(filename), ext) {
+// IsSupportedFormat reports whether filename has a supported archive extension.
+func IsSupportedFormat(filename string) bool {
+	filename = strings.ToLower(filename)
+	for _, ext := range orderedExts {
+		if strings.HasSuffix(filename, ext) {
 			return true
 		}
 	}
 	return false
 }
 
-// getUnpackFn returns the appropriate unpacker function for the filename
-func (u *Unpacker) getUnpackFn(filename string) (string, unpackFn, error) {
+// getUnpackFn returns the appropriate unpacker function for the filename.
+func getUnpackFn(filename string) (string, unpackFn, error) {
 	filename = strings.ToLower(filename)
-	for ext, fn := range u.unpackers {
+	for _, ext := range orderedExts {
 		if strings.HasSuffix(filename, ext) {
-			return ext, fn, nil
+			return ext, unpackers[ext], nil
 		}
 	}
 	return "", nil, fmt.Errorf("unsupported archive format: %s", filename)
 }
 
-// findExecutable searches for an executable binary in the directory tree
-func (u *Unpacker) findExecutable(dir string) (string, error) {
+// findExecutable searches for an executable binary in the directory tree.
+func findExecutable(dir string) (string, error) {
 	fileTypes := map[string]bool{
 		"application/x-mach-binary": true,
 		"application/x-executable":  true,
@@ -132,7 +134,7 @@ func (u *Unpacker) findExecutable(dir string) (string, error) {
 		}
 
 		if !info.IsDir() {
-			mimeType, err := u.detectFileType(path)
+			mimeType, err := detectFileType(path)
 			if err != nil {
 				// Continue searching on error
 				return nil
@@ -158,8 +160,8 @@ func (u *Unpacker) findExecutable(dir string) (string, error) {
 	return executablePath, nil
 }
 
-// detectFileType detects the MIME type of a file
-func (u *Unpacker) detectFileType(path string) (string, error) {
+// detectFileType detects the MIME type of a file.
+func detectFileType(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err

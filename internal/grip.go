@@ -90,15 +90,13 @@ func SelfUpdate(ctx context.Context, version string) error {
 	defer ws.Cleanup()
 
 	// Download
-	downloader := NewDownloader(&http.Client{Timeout: 30 * time.Second})
-	if err := downloader.Download(ctx, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
+	if err := Download(ctx, &http.Client{Timeout: 30 * time.Second}, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
 
 	// Unpack
-	unpacker := NewUnpacker()
 	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
-	binPath, err := unpacker.Unpack(archivePath, ws.UnpackDir())
+	binPath, err := Unpack(archivePath, ws.UnpackDir())
 	if err != nil {
 		return fmt.Errorf("unpack: %w", err)
 	}
