@@ -10,14 +10,17 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/google/go-github/v56/github"
+	"github.com/schollz/progressbar/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/ulikunitz/xz"
 )
 
 // MockRoundTripper is a mock implementation of http.RoundTripper for testing HTTP clients
@@ -589,4 +592,423 @@ func TestUnpackerZipSlip(t *testing.T) {
 			assert.Contains(t, err.Error(), "path traversal attempt")
 		})
 	}
+}
+
+// ==================== unpack.go direct tests ====================
+
+// machOBinary returns a minimal 64-bit Mach-O header that filetype.Match detects
+// as "application/x-mach-binary".
+func machOBinary() []byte {
+	return []byte{
+		0xcf, 0xfa, 0xed, 0xfe, // MH_MAGIC_64 (little-endian)
+		0x07, 0x00, 0x00, 0x01, // CPU_TYPE_X86_64
+		0x03, 0x00, 0x00, 0x00, // CPU_SUBTYPE_X86_64_ALL
+		0x02, 0x00, 0x00, 0x00, // MH_EXECUTE
+		0x00, 0x00, 0x00, 0x00, // ncmds
+		0x00, 0x00, 0x00, 0x00, // sizeofcmds
+		0x00, 0x00, 0x00, 0x00, // flags
+		0x00, 0x00, 0x00, 0x00, // reserved
+	}
+}
+
+// tarEntry describes a single entry for newTarStream.
+type tarEntry struct {
+	name    string
+	content []byte
+	mode    int64
+	isDir   bool
+}
+
+// newTarStream builds an in-memory tar stream from the given entries.
+func newTarStream(t *testing.T, entries []tarEntry) *bytes.Reader {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, e := range entries {
+		mode := e.mode
+		if mode == 0 {
+			if e.isDir {
+				mode = 0o755
+			} else {
+				mode = 0o644
+			}
+		}
+		typeflag := byte(tar.TypeReg)
+		if e.isDir {
+			typeflag = tar.TypeDir
+		}
+		hdr := &tar.Header{
+			Name:     e.name,
+			Mode:     mode,
+			Size:     int64(len(e.content)),
+			Typeflag: typeflag,
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		if len(e.content) > 0 {
+			_, err := tw.Write(e.content)
+			require.NoError(t, err)
+		}
+	}
+	require.NoError(t, tw.Close())
+	return bytes.NewReader(buf.Bytes())
+}
+
+// silentBar returns a progress bar that discards all output, suitable for tests.
+func silentBar() *progressbar.ProgressBar {
+	return progressbar.NewOptions(-1, progressbar.OptionSetWriter(io.Discard))
+}
+
+// bzip2Compress compresses data using the system bzip2 command.
+// The calling test is skipped when bzip2 is not present on the host.
+func bzip2Compress(t *testing.T, data []byte) []byte {
+	t.Helper()
+	bzip2Bin, err := exec.LookPath("bzip2")
+	if err != nil {
+		t.Skip("bzip2 command not available")
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(bzip2Bin, "--compress", "--stdout")
+	cmd.Stdin = bytes.NewReader(data)
+	cmd.Stdout = &out
+	require.NoError(t, cmd.Run())
+	return out.Bytes()
+}
+
+// createTestTarXz builds an in-memory .tar.xz containing a mock Mach-O executable.
+func createTestTarXz(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	xw, err := xz.NewWriter(&buf)
+	require.NoError(t, err)
+	tw := tar.NewWriter(xw)
+	content := append(machOBinary(), make([]byte, 1000)...)
+	hdr := &tar.Header{Name: "test-executable", Mode: 0o755, Size: int64(len(content))}
+	require.NoError(t, tw.WriteHeader(hdr))
+	_, err = tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, xw.Close())
+	return buf.Bytes()
+}
+
+// createTestZipWithExec builds an in-memory .zip containing a mock Mach-O executable.
+func createTestZipWithExec(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	fh := &zip.FileHeader{Name: "test-executable", Method: zip.Deflate}
+	fh.SetMode(0o755)
+	w, err := zw.CreateHeader(fh)
+	require.NoError(t, err)
+	content := append(machOBinary(), make([]byte, 1000)...)
+	_, err = w.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+// TestUnpackTar exercises the shared unpackTar core function directly.
+func TestUnpackTar(t *testing.T) {
+	t.Parallel()
+
+	t.Run("extracts regular file", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "hello.txt", content: []byte("hello world")},
+		}), dest))
+		got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(got))
+	})
+
+	t.Run("creates explicit directory entry", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "mydir/", isDir: true},
+			{name: "mydir/file.txt", content: []byte("inside")},
+		}), dest))
+		assert.DirExists(t, filepath.Join(dest, "mydir"))
+		got, err := os.ReadFile(filepath.Join(dest, "mydir", "file.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "inside", string(got))
+	})
+
+	t.Run("creates parent directories implicitly", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "a/b/c/deep.txt", content: []byte("deep")},
+		}), dest))
+		got, err := os.ReadFile(filepath.Join(dest, "a", "b", "c", "deep.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "deep", string(got))
+	})
+
+	t.Run("preserves execute bits", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "run.sh", content: []byte("#!/bin/sh"), mode: 0o755},
+		}), dest))
+		info, err := os.Stat(filepath.Join(dest, "run.sh"))
+		require.NoError(t, err)
+		assert.NotZero(t, info.Mode().Perm()&0o111, "execute bits should be preserved for mode 0755")
+	})
+
+	t.Run("non-executable file has no execute bits", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "config.txt", content: []byte("key=val"), mode: 0o600},
+		}), dest))
+		info, err := os.Stat(filepath.Join(dest, "config.txt"))
+		require.NoError(t, err)
+		assert.Zero(t, info.Mode().Perm()&0o111, "execute bits must not be set for mode 0600")
+	})
+
+	// Defense-in-depth: verify setuid/setgid bits from an archive are not set on
+	// extracted files or directories. On typical systems non-root processes cannot
+	// set these bits anyway, but we strip them explicitly via .Perm() to ensure
+	// the intent is clear and to guard against privileged execution environments.
+	t.Run("strips setuid and setgid bits from file", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		// 0o6755 = setuid + setgid + rwxr-xr-x
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "suid-sgid", content: []byte("data"), mode: 0o6755},
+		}), dest))
+		info, err := os.Stat(filepath.Join(dest, "suid-sgid"))
+		require.NoError(t, err)
+		assert.Zero(t, info.Mode()&os.ModeSetuid, "setuid bit must not be set on extracted file")
+		assert.Zero(t, info.Mode()&os.ModeSetgid, "setgid bit must not be set on extracted file")
+	})
+
+	t.Run("strips setuid bit from directory", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "suiddir/", isDir: true, mode: 0o4755},
+		}), dest))
+		info, err := os.Stat(filepath.Join(dest, "suiddir"))
+		require.NoError(t, err)
+		assert.Zero(t, info.Mode()&os.ModeSetuid, "setuid bit must not be set on extracted directory")
+	})
+
+	t.Run("multiple files and dirs", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "bin/", isDir: true},
+			{name: "bin/tool", content: []byte("binary"), mode: 0o755},
+			{name: "etc/config.toml", content: []byte("k=v"), mode: 0o644},
+		}), dest))
+		assert.FileExists(t, filepath.Join(dest, "bin", "tool"))
+		assert.FileExists(t, filepath.Join(dest, "etc", "config.toml"))
+	})
+
+	t.Run("rejects path traversal in entry name", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		err := unpackTar(newTarStream(t, []tarEntry{
+			{name: "../escape.txt", content: []byte("evil")},
+		}), dest)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "path traversal attempt")
+		_, statErr := os.Stat(filepath.Join(filepath.Dir(dest), "escape.txt"))
+		assert.True(t, os.IsNotExist(statErr), "traversal file must not have been created")
+	})
+
+	t.Run("rejects absolute path in entry name", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		// Build the tar manually: tar.Writer may normalize names, so we write the
+		// header bytes directly to preserve the absolute path.
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		content := []byte("evil")
+		_ = tw.WriteHeader(&tar.Header{Name: "/etc/passwd", Mode: 0o644, Size: int64(len(content))})
+		_, _ = tw.Write(content)
+		_ = tw.Close()
+		err := unpackTar(&buf, dest)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "path traversal attempt")
+	})
+}
+
+// TestUnpackTarGzDirect tests unpackTarGz directly, bypassing Unpacker.Unpack.
+func TestUnpackTarGzDirect(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	content := []byte("hello from tar.gz")
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "hello.txt", Mode: 0o644, Size: int64(len(content))}))
+	_, err := tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	require.NoError(t, unpackTarGz(bytes.NewReader(buf.Bytes()), dest, silentBar()))
+	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "hello from tar.gz", string(got))
+}
+
+// TestUnpackTarXzDirect tests unpackTarXz directly, bypassing Unpacker.Unpack.
+func TestUnpackTarXzDirect(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+
+	var buf bytes.Buffer
+	xw, err := xz.NewWriter(&buf)
+	require.NoError(t, err)
+	tw := tar.NewWriter(xw)
+	content := []byte("hello from tar.xz")
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "hello.txt", Mode: 0o644, Size: int64(len(content))}))
+	_, err = tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, xw.Close())
+
+	require.NoError(t, unpackTarXz(bytes.NewReader(buf.Bytes()), dest, silentBar()))
+	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "hello from tar.xz", string(got))
+}
+
+// TestUnpackTarBz2Direct tests unpackTarBz2 directly using the system bzip2 command.
+// The test is skipped when bzip2 is not available on the host.
+func TestUnpackTarBz2Direct(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
+	content := []byte("hello from tar.bz2")
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "hello.txt", Mode: 0o644, Size: int64(len(content))}))
+	_, err := tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+
+	compressed := bzip2Compress(t, tarBuf.Bytes())
+	require.NoError(t, unpackTarBz2(bytes.NewReader(compressed), dest, silentBar()))
+	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "hello from tar.bz2", string(got))
+}
+
+// TestUnpackBz2Direct tests unpackBz2 (raw bzip2, no tar layer) directly.
+// The test is skipped when bzip2 is not available on the host.
+func TestUnpackBz2Direct(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+
+	content := []byte("hello from raw bz2")
+	compressed := bzip2Compress(t, content)
+	outPath := filepath.Join(dest, "hello.txt")
+	require.NoError(t, unpackBz2(bytes.NewReader(compressed), outPath, silentBar()))
+	got, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+	assert.Equal(t, "hello from raw bz2", string(got))
+}
+
+// TestUnpackZipDirect tests unpackZip directly, including directory entries.
+func TestUnpackZipDirect(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	// Explicit directory entry.
+	dirHdr := &zip.FileHeader{Name: "subdir/"}
+	dirHdr.SetMode(os.ModeDir | 0o755)
+	_, err := zw.CreateHeader(dirHdr)
+	require.NoError(t, err)
+
+	// File inside that directory.
+	fileHdr := &zip.FileHeader{Name: "subdir/hello.txt", Method: zip.Deflate}
+	fileHdr.SetMode(0o644)
+	w, err := zw.CreateHeader(fileHdr)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("hello from zip"))
+	require.NoError(t, err)
+
+	// File at root.
+	rootHdr := &zip.FileHeader{Name: "root.txt", Method: zip.Deflate}
+	rootHdr.SetMode(0o644)
+	w2, err := zw.CreateHeader(rootHdr)
+	require.NoError(t, err)
+	_, err = w2.Write([]byte("root file"))
+	require.NoError(t, err)
+
+	require.NoError(t, zw.Close())
+
+	require.NoError(t, unpackZip(bytes.NewReader(buf.Bytes()), dest, silentBar()))
+	assert.DirExists(t, filepath.Join(dest, "subdir"))
+	got, err := os.ReadFile(filepath.Join(dest, "subdir", "hello.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "hello from zip", string(got))
+	got2, err := os.ReadFile(filepath.Join(dest, "root.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "root file", string(got2))
+}
+
+// TestUnpackerNoExecutableFound verifies that Unpacker.Unpack returns an error
+// when no executable binary is present in the archive.
+func TestUnpackerNoExecutableFound(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	content := []byte("just a text file, no binary")
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "readme.txt", Mode: 0o644, Size: int64(len(content))}))
+	_, err := tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	archivePath := filepath.Join(tempDir, "noexec.tar.gz")
+	require.NoError(t, os.WriteFile(archivePath, buf.Bytes(), 0o644))
+
+	unpacker := NewUnpacker()
+	_, err = unpacker.Unpack(archivePath, filepath.Join(tempDir, "out"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no executable found in archive")
+}
+
+// TestUnpackerUnpackZip tests Unpacker.Unpack end-to-end for the .zip format.
+func TestUnpackerUnpackZip(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+
+	archivePath := filepath.Join(tempDir, "test.zip")
+	require.NoError(t, os.WriteFile(archivePath, createTestZipWithExec(t), 0o644))
+
+	unpacker := NewUnpacker()
+	execPath, err := unpacker.Unpack(archivePath, filepath.Join(tempDir, "out"))
+	assert.NoError(t, err)
+	assert.NotEmpty(t, execPath)
+	assert.FileExists(t, execPath)
+}
+
+// TestUnpackerUnpackTarXz tests Unpacker.Unpack end-to-end for the .tar.xz format.
+func TestUnpackerUnpackTarXz(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+
+	archivePath := filepath.Join(tempDir, "test.tar.xz")
+	require.NoError(t, os.WriteFile(archivePath, createTestTarXz(t), 0o644))
+
+	unpacker := NewUnpacker()
+	execPath, err := unpacker.Unpack(archivePath, filepath.Join(tempDir, "out"))
+	assert.NoError(t, err)
+	assert.NotEmpty(t, execPath)
+	assert.FileExists(t, execPath)
 }
