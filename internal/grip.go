@@ -17,6 +17,19 @@ const (
 )
 
 func SelfUpdate(ctx context.Context, version string, installer *Installer) error {
+	if installer == nil {
+		return fmt.Errorf("installer is required")
+	}
+	if installer.ghClient == nil {
+		return fmt.Errorf("installer: GitHub client is required")
+	}
+	if installer.config == nil {
+		return fmt.Errorf("installer: config is required")
+	}
+	if installer.httpClient == nil {
+		return fmt.Errorf("installer: HTTP client is required")
+	}
+
 	owner, name, err := ParseRepoPath(repository)
 	if err != nil {
 		return err
