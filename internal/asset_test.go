@@ -664,6 +664,21 @@ func bzip2Compress(t *testing.T, data []byte) []byte {
 	return out.Bytes()
 }
 
+// createTestTarBz2 builds an in-memory .tar.bz2 containing a mock Mach-O executable.
+// The test that calls this helper is skipped when bzip2 is not available on the host.
+func createTestTarBz2(t *testing.T) []byte {
+	t.Helper()
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
+	content := append(machOBinary(), make([]byte, 1000)...)
+	hdr := &tar.Header{Name: "test-executable", Mode: 0o755, Size: int64(len(content))}
+	require.NoError(t, tw.WriteHeader(hdr))
+	_, err := tw.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	return bzip2Compress(t, tarBuf.Bytes())
+}
+
 // createTestTarXz builds an in-memory .tar.xz containing a mock Mach-O executable.
 func createTestTarXz(t *testing.T) []byte {
 	t.Helper()
@@ -993,6 +1008,21 @@ func TestUnpackerUnpackTarXz(t *testing.T) {
 
 	archivePath := filepath.Join(tempDir, "test.tar.xz")
 	require.NoError(t, os.WriteFile(archivePath, createTestTarXz(t), 0o644))
+
+	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
+	assert.NoError(t, err)
+	assert.NotEmpty(t, execPath)
+	assert.FileExists(t, execPath)
+}
+
+// TestUnpackerUnpackTarBz2 tests Unpacker.Unpack end-to-end for the .tar.bz2 format.
+// The test is skipped when bzip2 is not available on the host.
+func TestUnpackerUnpackTarBz2(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+
+	archivePath := filepath.Join(tempDir, "test.tar.bz2")
+	require.NoError(t, os.WriteFile(archivePath, createTestTarBz2(t), 0o644))
 
 	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
 	assert.NoError(t, err)
