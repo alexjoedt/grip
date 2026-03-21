@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -36,7 +35,6 @@ type repoEntry struct {
 // Storage manages installed packages
 type Storage struct {
 	filepath string
-	mu       sync.RWMutex
 }
 
 // NewStorage creates a new storage instance with migration from old lock file
@@ -67,9 +65,6 @@ func NewStorage(filepath string, cfg *Config) (*Storage, error) {
 
 // Get retrieves installation by name
 func (s *Storage) Get(name string) (*Installation, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	data, err := s.load()
 	if err != nil {
 		return nil, err
@@ -85,9 +80,6 @@ func (s *Storage) Get(name string) (*Installation, error) {
 
 // GetByRepo retrieves installation by repository path
 func (s *Storage) GetByRepo(repo string) (*Installation, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	data, err := s.load()
 	if err != nil {
 		return nil, err
@@ -104,9 +96,6 @@ func (s *Storage) GetByRepo(repo string) (*Installation, error) {
 
 // List returns all installations
 func (s *Storage) List() ([]*Installation, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	data, err := s.load()
 	if err != nil {
 		return nil, err
@@ -122,9 +111,6 @@ func (s *Storage) List() ([]*Installation, error) {
 
 // Save stores or updates an installation
 func (s *Storage) Save(inst *Installation) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	data, err := s.load()
 	if err != nil {
 		return err
@@ -136,9 +122,6 @@ func (s *Storage) Save(inst *Installation) error {
 
 // Delete removes an installation by name
 func (s *Storage) Delete(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	data, err := s.load()
 	if err != nil {
 		return err

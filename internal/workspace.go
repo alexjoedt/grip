@@ -11,7 +11,6 @@ type Workspace struct {
 	rootDir     string
 	downloadDir string
 	unpackDir   string
-	created     bool
 }
 
 // NewWorkspace creates a new workspace with temporary directories
@@ -29,7 +28,6 @@ func NewWorkspace(baseTempDir, prefix string) (*Workspace, error) {
 		rootDir:     rootDir,
 		downloadDir: filepath.Join(rootDir, "download"),
 		unpackDir:   filepath.Join(rootDir, "unpack"),
-		created:     true,
 	}
 
 	if err := os.MkdirAll(ws.downloadDir, 0755); err != nil {
@@ -62,7 +60,7 @@ func (w *Workspace) RootDir() string {
 
 // Cleanup removes all workspace directories
 func (w *Workspace) Cleanup() error {
-	if !w.created || w.rootDir == "" {
+	if w.rootDir == "" {
 		return nil
 	}
 
@@ -70,6 +68,6 @@ func (w *Workspace) Cleanup() error {
 		return fmt.Errorf("cleanup workspace: %w", err)
 	}
 
-	w.created = false
+	w.rootDir = ""
 	return nil
 }

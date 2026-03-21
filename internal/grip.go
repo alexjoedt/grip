@@ -7,9 +7,7 @@ import (
 
 	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/alexjoedt/grip/internal/semver"
-	"github.com/k0kubun/go-ansi"
 	"github.com/minio/selfupdate"
-	"github.com/schollz/progressbar/v3"
 )
 
 const (
@@ -88,20 +86,4 @@ func SelfUpdate(ctx context.Context, version string, installer *Installer) error
 
 	logger.Success("Grip updated successfully to %s", asset.Tag)
 	return nil
-}
-
-func NewProgressBar(size int, description string) *progressbar.ProgressBar {
-	return progressbar.NewOptions(size,
-		progressbar.OptionFullWidth(),
-		progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetDescription(description),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[green]=[reset]",
-			SaucerHead:    "[green]>[reset]",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}))
 }
