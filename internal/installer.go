@@ -146,7 +146,7 @@ func (i *Installer) Update(ctx context.Context, name string) error {
 		Repo:  inst.Repo,
 		Tag:   "", // Get latest
 		Force: true,
-		Alias:       inst.Alias,
+		Alias: inst.Alias,
 	}
 
 	return i.Install(ctx, opts)
