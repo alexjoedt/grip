@@ -7,7 +7,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func Command(ctx context.Context, app *cli.App, installer *grip.Installer, cfg *grip.Config) {
+func Command(ctx context.Context, app *cli.App, installer *grip.Installer) {
 	cmd := &cli.Command{
 		Name:  "install",
 		Usage: "install an executable from a GitHub release",
@@ -16,12 +16,6 @@ func Command(ctx context.Context, app *cli.App, installer *grip.Installer, cfg *
 				Name:    "tag",
 				Aliases: []string{"t"},
 				Usage:   "release tag",
-			},
-			&cli.StringFlag{
-				Name:    "destination",
-				Aliases: []string{"d"},
-				Usage:   "specifies the installation path",
-				Value:   cfg.BinDir,
 			},
 			&cli.BoolFlag{
 				Name:    "force",
@@ -36,11 +30,10 @@ func Command(ctx context.Context, app *cli.App, installer *grip.Installer, cfg *
 		},
 		Action: func(c *cli.Context) error {
 			opts := grip.InstallOptions{
-				Repo:        c.Args().First(),
-				Tag:         c.String("tag"),
-				Destination: c.String("destination"),
-				Force:       c.Bool("force"),
-				Alias:       c.String("alias"),
+				Repo:  c.Args().First(),
+				Tag:   c.String("tag"),
+				Force: c.Bool("force"),
+				Alias: c.String("alias"),
 			}
 
 			return installer.Install(ctx, opts)

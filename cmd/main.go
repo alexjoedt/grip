@@ -80,10 +80,10 @@ func main() {
 	}
 
 	versionCommand(app)
-	install.Command(ctx, app, installer, cfg)
+	install.Command(ctx, app, installer)
 	update.Command(ctx, app, installer, storage, cfg)
 	list.Command(app, storage)
-	remove.Command(app, storage, cfg)
+	remove.Command(app, installer, storage)
 
 	if err := app.Run(os.Args); err != nil {
 		logger.Error("%s", err.Error())

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	grip "github.com/alexjoedt/grip/internal"
@@ -12,7 +11,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func Command(app *cli.App, storage *grip.Storage, cfg *grip.Config) {
+func Command(app *cli.App, installer *grip.Installer, storage *grip.Storage) {
 	cmd := &cli.Command{
 		Name:        "remove",
 		Usage:       "removes an installed executable by grip",
@@ -43,18 +42,10 @@ func Command(app *cli.App, storage *grip.Storage, cfg *grip.Config) {
 				}
 
 				for _, inst := range installations {
-					p := filepath.Join(inst.InstallPath, inst.Name)
-					if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-						logger.Error("Failed to remove: %s", p)
+					if err := installer.Remove(inst.Name); err != nil {
+						logger.Error("Failed to remove %s: %v", inst.Name, err)
 						continue
 					}
-
-					if err := storage.Delete(inst.Name); err != nil {
-						logger.Error("Failed to update storage: %v", err)
-						continue
-					}
-
-					logger.Success("Removed: %s", p)
 				}
 				return nil
 			}
@@ -68,28 +59,13 @@ func Command(app *cli.App, storage *grip.Storage, cfg *grip.Config) {
 				return fmt.Errorf("please provide the name or alias, not the repo path")
 			}
 
-			inst, err := storage.Get(name)
-			if err != nil {
-				return fmt.Errorf("package not found: %s", name)
-			}
-
 			if !c.Bool("force") {
 				if !askForContinue() {
 					return nil
 				}
 			}
 
-			p := filepath.Join(inst.InstallPath, inst.Name)
-			if err := os.Remove(p); err != nil {
-				return fmt.Errorf("failed to remove binary: %w", err)
-			}
-
-			if err := storage.Delete(inst.Name); err != nil {
-				return fmt.Errorf("failed to update storage: %w", err)
-			}
-
-			logger.Success("Removed: %s", name)
-			return nil
+			return installer.Remove(name)
 		},
 	}
 	app.Commands = append(app.Commands, cmd)

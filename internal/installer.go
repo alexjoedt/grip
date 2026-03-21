@@ -44,11 +44,10 @@ func (i *Installer) Config() *Config {
 
 // InstallOptions holds installation parameters
 type InstallOptions struct {
-	Repo        string
-	Tag         string
-	Destination string
-	Force       bool
-	Alias       string
+	Repo  string
+	Tag   string
+	Force bool
+	Alias string
 }
 
 // Install installs a package from GitHub
@@ -144,11 +143,10 @@ func (i *Installer) Update(ctx context.Context, name string) error {
 
 	// Install with force flag
 	opts := InstallOptions{
-		Repo:        inst.Repo,
-		Tag:         "", // Get latest
-		Destination: inst.InstallPath,
-		Force:       true,
-		Alias:       inst.Alias,
+		Repo:  inst.Repo,
+		Tag:   "", // Get latest
+		Force: true,
+		Alias: inst.Alias,
 	}
 
 	return i.Install(ctx, opts)
