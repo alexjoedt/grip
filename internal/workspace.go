@@ -69,5 +69,7 @@ func (w *Workspace) Cleanup() error {
 	}
 
 	w.rootDir = ""
+	w.downloadDir = ""
+	w.unpackDir = ""
 	return nil
 }
