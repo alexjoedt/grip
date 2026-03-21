@@ -97,8 +97,8 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	asset.Tag = *release.TagName
 	asset.Alias = opts.Alias
 
-	// Install using orchestration function
-	if err := InstallAsset(ctx, asset, i.config, i.httpClient); err != nil {
+	// Install asset
+	if err := i.installAsset(ctx, asset); err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
@@ -152,6 +152,49 @@ func (i *Installer) Update(ctx context.Context, name string) error {
 	}
 
 	return i.Install(ctx, opts)
+}
+
+// downloadAndUnpack downloads an asset archive and unpacks it.
+// Returns the path to the extracted executable and a cleanup function.
+// The caller is responsible for calling cleanup when done.
+func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string, func(), error) {
+	ws, err := NewWorkspace(i.config.TempDir, asset.Name)
+	if err != nil {
+		return "", nil, fmt.Errorf("create workspace: %w", err)
+	}
+	cleanup := func() {
+		if cleanupErr := ws.Cleanup(); cleanupErr != nil {
+			logger.Error("Failed to cleanup workspace: %v", cleanupErr)
+		}
+	}
+
+	if err := Download(ctx, i.httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("download: %w", err)
+	}
+
+	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
+	binPath, err := Unpack(archivePath, ws.UnpackDir())
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("unpack: %w", err)
+	}
+
+	return binPath, cleanup, nil
+}
+
+// installAsset orchestrates the complete installation workflow for an asset.
+func (i *Installer) installAsset(ctx context.Context, asset *Asset) error {
+	binPath, cleanup, err := i.downloadAndUnpack(ctx, asset)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := InstallBinary(binPath, i.config.BinDir, asset.BinaryName()); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	return nil
 }
 
 // Remove removes an installed package
