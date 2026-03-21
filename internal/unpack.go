@@ -43,6 +43,17 @@ var unpackers = map[string]unpackFn{
 	".bz2":     unpackBz2,
 }
 
+// orderedExts lists supported archive extensions sorted by descending length
+// so that longer suffixes (e.g. .tar.bz2) are matched before shorter ones (e.g. .bz2).
+var orderedExts = []string{
+	".tar.bz2",
+	".tar.gz",
+	".tar.xz",
+	".tbz",
+	".zip",
+	".bz2",
+}
+
 // Unpack extracts an archive file to the destination directory.
 // Returns the path to the executable binary found in the archive.
 func Unpack(archivePath, destDir string) (string, error) {
@@ -89,8 +100,9 @@ func Unpack(archivePath, destDir string) (string, error) {
 
 // IsSupportedFormat reports whether filename has a supported archive extension.
 func IsSupportedFormat(filename string) bool {
-	for ext := range unpackers {
-		if strings.HasSuffix(strings.ToLower(filename), ext) {
+	filename = strings.ToLower(filename)
+	for _, ext := range orderedExts {
+		if strings.HasSuffix(filename, ext) {
 			return true
 		}
 	}
@@ -100,9 +112,9 @@ func IsSupportedFormat(filename string) bool {
 // getUnpackFn returns the appropriate unpacker function for the filename.
 func getUnpackFn(filename string) (string, unpackFn, error) {
 	filename = strings.ToLower(filename)
-	for ext, fn := range unpackers {
+	for _, ext := range orderedExts {
 		if strings.HasSuffix(filename, ext) {
-			return ext, fn, nil
+			return ext, unpackers[ext], nil
 		}
 	}
 	return "", nil, fmt.Errorf("unsupported archive format: %s", filename)
