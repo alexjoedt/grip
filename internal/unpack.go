@@ -180,15 +180,10 @@ func (u *Unpacker) detectFileType(path string) (string, error) {
 	return kind.MIME.Value, nil
 }
 
-func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	gzr, err := gzip.NewReader(io.TeeReader(packageFile, bar))
-	if err != nil {
-		return err
-	}
-	defer gzr.Close()
-
-	tr := tar.NewReader(gzr)
-
+// unpackTar iterates over a tar stream and extracts entries into destination.
+// r should already be a decompressed reader (the caller handles decompression).
+func unpackTar(r io.Reader, destination string) error {
+	tr := tar.NewReader(r)
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -202,67 +197,46 @@ func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.Pro
 		if err != nil {
 			return err
 		}
+
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			dir := filepath.Dir(target)
-			_, err := os.Stat(dir)
-			if err != nil {
-				os.MkdirAll(dir, 0755)
-			}
-			f, err := os.Create(target)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				return err
-			}
-			f.Close()
-		}
-	}
-	return nil
-}
-
-func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	bzr := bzip2.NewReader(io.TeeReader(packageFile, bar))
-
-	tr := tar.NewReader(bzr)
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		target, err := sanitizePath(destination, header.Name)
-		if err != nil {
-			return err
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
+			if err := os.MkdirAll(target, os.FileMode(header.Mode).Perm()); err != nil {
 				return err
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
-			f, err := os.Create(target)
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode).Perm())
 			if err != nil {
 				return err
 			}
 			if _, err := io.Copy(f, tr); err != nil {
+				if cerr := f.Close(); cerr != nil {
+					return errors.Join(err, cerr)
+				}
 				return err
 			}
-			f.Close()
+			if err := f.Close(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
+	gzr, err := gzip.NewReader(io.TeeReader(packageFile, bar))
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+	return unpackTar(gzr, destination)
+}
+
+func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
+	bzr := bzip2.NewReader(io.TeeReader(packageFile, bar))
+	return unpackTar(bzr, destination)
 }
 
 func unpackBz2(packageReader io.Reader, destination string, bar *progressbar.ProgressBar) error {
@@ -337,44 +311,9 @@ func unpackZip(packageFile io.Reader, destination string, bar *progressbar.Progr
 }
 
 func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-
 	xzr, err := xz.NewReader(io.TeeReader(packageFile, bar))
 	if err != nil {
 		return err
 	}
-
-	tr := tar.NewReader(xzr)
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		target, err := sanitizePath(destination, header.Name)
-		if err != nil {
-			return err
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			f, err := os.Create(target)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				return err
-			}
-			f.Close()
-		}
-	}
-	return nil
+	return unpackTar(xzr, destination)
 }
