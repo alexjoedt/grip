@@ -1,6 +1,3 @@
-version:
-    scheme: semver
-    prefix: v
-git:
-    tag_prefix: v
-    default_branch: main
+scheme: semver
+prefix: v
+default_branch: main
