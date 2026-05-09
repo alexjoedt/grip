@@ -36,6 +36,7 @@ func sanitizePath(destination, name string) (string, error) {
 
 var unpackers = map[string]unpackFn{
 	".tar.gz":  unpackTarGz,
+	".tgz":     unpackTarGz,
 	".tar.bz2": unpackTarBz2,
 	".tbz":     unpackTarBz2,
 	".zip":     unpackZip,
@@ -48,6 +49,7 @@ var unpackers = map[string]unpackFn{
 var orderedExts = []string{
 	".tar.bz2",
 	".tar.gz",
+	".tgz",
 	".tar.xz",
 	".tbz",
 	".zip",
