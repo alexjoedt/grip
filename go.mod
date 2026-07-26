@@ -9,7 +9,7 @@ require (
 	github.com/minio/selfupdate v0.6.0
 	github.com/schollz/progressbar/v3 v3.19.1
 	github.com/stretchr/testify v1.11.1
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz v0.5.16
 	github.com/urfave/cli/v2 v2.27.7
 )
 
