@@ -24,6 +24,8 @@ type Asset struct {
 	RepoOwner   string
 	BinOverride string
 	AnyArch     bool // explicitly chosen; a binary for another arch only warns
+
+	requireDigest bool // fail instead of warn without a sha256 digest
 }
 
 // choiceError reports candidates that the flag chooses between.

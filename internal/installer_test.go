@@ -1163,3 +1163,99 @@ func TestVerify(t *testing.T) {
 		t.Errorf("store = %v, want [v1.0.0]", got)
 	}
 }
+
+// selfExe writes a fake running grip outside the store and returns its
+// symlink-resolved path.
+func selfExe(t *testing.T) (string, []byte) {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := []byte("old grip")
+	exe := filepath.Join(dir, "grip")
+	if err := os.WriteFile(exe, old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return exe, old
+}
+
+func TestSelfUpdateDirect(t *testing.T) {
+	ctx := context.Background()
+	archive := fixtureArchive(t, 7)
+	newBin := append(machOBinary(), 7)
+	tests := map[string]struct {
+		digest string
+		fault  string
+		want   error
+	}{
+		"verified":  {digest: sha256Digest(archive)},
+		"mismatch":  {digest: sha256Digest([]byte("tampered")), want: ErrDigestMismatch},
+		"no digest": {want: ErrDigestMissing},
+		"other alg": {digest: "sha512:abcd", want: ErrDigestMissing},
+		"mid-copy":  {digest: sha256Digest(archive), fault: "copying", want: errFault},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			exe, old := selfExe(t)
+			inst := e.installer(fakeSource{release: e.digestRelease("v9.0.0", "/grip", archive, tt.digest)})
+			inst.faultHook = func(s string) error {
+				if s == tt.fault {
+					return errFault
+				}
+				return nil
+			}
+
+			err := inst.selfUpdate(ctx, "v1.0.0", exe)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("selfUpdate err = %v, want %v", err, tt.want)
+			}
+			want := newBin
+			if tt.want != nil {
+				want = old
+			}
+			if got, err := os.ReadFile(exe); err != nil || !bytes.Equal(got, want) {
+				t.Errorf("exe = %q, %v; want %q", got, err, want)
+			}
+			if got := dirNames(t, filepath.Dir(exe)); !slices.Equal(got, []string{"grip"}) {
+				t.Errorf("exe dir = %v, want only grip", got)
+			}
+		})
+	}
+}
+
+func TestSelfUpdateDelegates(t *testing.T) {
+	const name = "grip-fixture-zz"
+	ctx := context.Background()
+	e := newInstallerEnv(t)
+	v1 := fixtureArchive(t, 1)
+	if err := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", v1, sha256Digest(v1))}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := filepath.EvalSymlinks(filepath.Join(e.cfg.BinDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v2 := fixtureArchive(t, 2)
+	unpublished := e.installer(fakeSource{release: e.digestRelease("v1.1.0", "/b", v2, "")})
+	if err := unpublished.selfUpdate(ctx, "v1.0.0", exe); !errors.Is(err, ErrDigestMissing) {
+		t.Fatalf("delegated selfUpdate without digest err = %v, want ErrDigestMissing", err)
+	}
+	e.assertInstalled(t, name, "v1.0.0")
+
+	if err := e.installer(fakeSource{release: e.digestRelease("v1.1.0", "/b", v2, sha256Digest(v2))}).selfUpdate(ctx, "v1.0.0", exe); err != nil {
+		t.Fatalf("delegated selfUpdate: %v", err)
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+	if inst, err := e.storage.Get(name); err != nil || inst.AssetDigest != sha256Digest(v2) || inst.Repo != "github.com/"+fixtureRepo {
+		t.Errorf("state = %+v, %v", inst, err)
+	}
+
+	v3 := fixtureArchive(t, 3)
+	if err := e.installer(fakeSource{release: e.digestRelease("v1.2.0", "/c", v3, "")}).Update(ctx, name, "", ""); err != nil {
+		t.Fatalf("plain update without digest: %v", err)
+	}
+	e.assertInstalled(t, name, "v1.2.0")
+}

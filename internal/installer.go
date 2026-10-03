@@ -44,6 +44,8 @@ type InstallOptions struct {
 	Alias string
 	Asset string // asset name or path.Match pattern, remembered for updates
 	Bin   string // base name of the executable in the archive, remembered
+
+	requireDigest bool
 }
 
 // Install installs a package from GitHub
@@ -163,6 +165,7 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	asset.Tag = release.Tag
 	asset.Alias = opts.Alias
 	asset.BinOverride = binOverride
+	asset.requireDigest = opts.requireDigest
 	if opts.Asset == asset.Name {
 		assetOverride = versionGlob(asset.Name, release.Tag)
 	}
@@ -245,6 +248,10 @@ func tagOrLatest(tag string) string {
 // Update updates an installed package. A non-empty asset or bin replaces the
 // stored override.
 func (i *Installer) Update(ctx context.Context, name, asset, bin string) error {
+	return i.update(ctx, name, asset, bin, false)
+}
+
+func (i *Installer) update(ctx context.Context, name, asset, bin string, requireDigest bool) error {
 	unlock, err := i.storage.Lock(ctx)
 	if err != nil {
 		return err
@@ -256,7 +263,7 @@ func (i *Installer) Update(ctx context.Context, name, asset, bin string) error {
 		return fmt.Errorf("package not found: %s", name)
 	}
 
-	opts := InstallOptions{Repo: inst.Repo, Force: true, Asset: asset, Bin: bin}
+	opts := InstallOptions{Repo: inst.Repo, Force: true, Asset: asset, Bin: bin, requireDigest: requireDigest}
 	if repo, err := ParseRepo(inst.Repo); err == nil && repo.Name != name {
 		opts.Alias = name
 	}
@@ -280,7 +287,8 @@ func pinnedDigest(existing *Installation, tag, asset string) string {
 
 // checkDigest verifies the downloaded hex sum against the published digest
 // and a pinned digest recorded earlier. It returns the digest source to record
-// and a warning when no sha256 digest was published.
+// and a warning when no sha256 digest was published, an error instead when
+// the asset requires one.
 func checkDigest(asset *Asset, sum, pinned string) (source, warning string, err error) {
 	got := "sha256:" + sum
 	algo, want, _ := strings.Cut(asset.Digest, ":")
@@ -293,6 +301,9 @@ func checkDigest(asset *Asset, sum, pinned string) (source, warning string, err 
 		return "", "", fmt.Errorf("%w for %s: expected %s, got %s", ErrDigestMismatch, asset.Name, asset.Digest, got)
 	default:
 		source = DigestSourceAPI
+	}
+	if source == DigestSourceNone && asset.requireDigest {
+		return "", "", fmt.Errorf("%w for %s", ErrDigestMissing, asset.Name)
 	}
 	if pinned != "" && !strings.EqualFold(pinned, got) {
 		return "", "", fmt.Errorf("%w for %s %s: recorded %s, downloaded %s", ErrDigestChanged, asset.Name, asset.Tag, pinned, got)
