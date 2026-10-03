@@ -52,40 +52,39 @@ func loadCorpus(t *testing.T) []corpusEntry {
 	return entries
 }
 
-// TestCorpus reports how the current selection does on real release asset
-// lists. It only logs; 03-02 and 03-05 turn the counts into a gate.
+// TestCorpus gates asset selection on real release asset lists: per target at
+// least 95% correct and no wrong asset. The binary hit rate only logs until 03-05.
 func TestCorpus(t *testing.T) {
 	corpus := loadCorpus(t)
-	cfg, err := DefaultConfig()
-	require.NoError(t, err)
 
 	for _, target := range corpusTargets {
-		cfg.OS, cfg.Arch, _ = strings.Cut(target, "/")
+		goos, goarch, _ := strings.Cut(target, "/")
 		var correct, wrong, missed int
 		for _, e := range corpus {
-			repo, err := ParseRepo(e.Repo)
-			require.NoError(t, err)
 			assets := make([]ReleaseAsset, len(e.Assets))
 			for i, name := range e.Assets {
 				assets[i] = ReleaseAsset{Name: name, URL: "https://example.invalid/" + name}
 			}
 
 			want := e.Expect[target]
-			got, err := parseAsset(assets, cfg, repo.Owner, repo.Name)
+			got, _, err := selectAsset(assets, goos, goarch)
 			switch {
 			case err != nil && want == "":
 				correct++
 			case err != nil:
 				missed++
-				t.Logf("%s %s: none, want %s", target, e.Repo, want)
-			case strings.EqualFold(got.Name, want):
+				t.Logf("%s %s: %v, want %s", target, e.Repo, err, want)
+			case got.Name == want:
 				correct++
 			default:
 				wrong++
-				t.Logf("%s %s: got %s, want %q", target, e.Repo, got.Name, want)
+				t.Errorf("%s %s: got %s, want %q", target, e.Repo, got.Name, want)
 			}
 		}
 		t.Logf("%s: %d correct, %d wrong, %d ambiguous or none (of %d)", target, correct, wrong, missed, len(corpus))
+		if correct*100 < 95*len(corpus) {
+			t.Errorf("%s: %d of %d correct, want at least 95%%", target, correct, len(corpus))
+		}
 	}
 
 	var hits, listings int

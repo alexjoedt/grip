@@ -1,8 +1,7 @@
 package grip
 
 import (
-	"fmt"
-	"strings"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,114 +56,142 @@ func TestAssetBinaryName(t *testing.T) {
 	}
 }
 
-// TestParseAsset tests the parseAsset function
-func TestParseAsset(t *testing.T) {
+func TestSelectAsset(t *testing.T) {
 	t.Parallel()
 
-	// Get current OS and Arch from config
-	cfg, err := DefaultConfig()
-	require.NoError(t, err)
-	currentOS := cfg.OS
-	currentArch := cfg.Arch
-
-	testCases := []struct {
-		name         string
-		assets       []ReleaseAsset
-		repoOwner    string
-		repoName     string
-		expectError  bool
-		errorMsg     string
-		expectedOS   string
-		expectedArch string
+	tests := []struct {
+		name        string
+		goos, arch  string
+		assets      []string
+		want        string
+		wantErr     error
+		wantDropped map[string]string // asset -> stage
 	}{
 		{
-			name: "successful parsing with matching asset",
-			assets: []ReleaseAsset{
-				{
-					Name: "tool_windows_amd64.zip",
-					URL:  "https://example.com/tool_windows_amd64.zip",
-				},
-				{
-					Name: fmt.Sprintf("tool_%s_%s.tar.gz", currentOS, currentArch),
-					URL:  fmt.Sprintf("https://example.com/tool_%s_%s.tar.gz", currentOS, currentArch),
-				},
-				{
-					Name: "tool_linux_arm64.tar.gz",
-					URL:  "https://example.com/tool_linux_arm64.tar.gz",
-				},
-			},
-			repoOwner:    "test-owner",
-			repoName:     "test-repo",
-			expectError:  false,
-			expectedOS:   currentOS,
-			expectedArch: currentArch,
+			name: "arm is not arm64", goos: "linux", arch: "arm64",
+			assets: []string{"tool_linux_arm.tar.gz", "tool_linux_arm64.tar.gz"},
+			want:   "tool_linux_arm64.tar.gz", wantDropped: map[string]string{"tool_linux_arm.tar.gz": stageArch},
 		},
 		{
-			name: "no matching asset for current OS/Arch",
-			assets: []ReleaseAsset{
-				{
-					Name: "tool_windows_amd64.zip",
-					URL:  "https://example.com/tool_windows_amd64.zip",
-				},
-				{
-					Name: "tool_linux_arm64.tar.gz",
-					URL:  "https://example.com/tool_linux_arm64.tar.gz",
-				},
-			},
-			repoOwner:   "test-owner",
-			repoName:    "test-repo",
-			expectError: true,
-			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
+			name: "386 only as whole token", goos: "linux", arch: "386",
+			assets: []string{"tool-1386_linux_amd64.tar.gz", "tool_linux_386.tar.gz"},
+			want:   "tool_linux_386.tar.gz",
 		},
 		{
-			name: "asset with unsupported extension",
-			assets: []ReleaseAsset{
-				{
-					Name: fmt.Sprintf("tool_%s_%s.exe", currentOS, currentArch),
-					URL:  fmt.Sprintf("https://example.com/tool_%s_%s.exe", currentOS, currentArch),
-				},
-			},
-			repoOwner:   "test-owner",
-			repoName:    "test-repo",
-			expectError: true,
-			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
+			name: "win does not match darwin", goos: "windows", arch: "amd64",
+			assets:  []string{"tool_darwin_amd64.tar.gz"},
+			wantErr: errNoAsset,
 		},
 		{
-			name:        "empty asset list",
-			assets:      []ReleaseAsset{},
-			repoOwner:   "test-owner",
-			repoName:    "test-repo",
-			expectError: true,
-			errorMsg:    fmt.Sprintf("no asset found for %s_%s", currentOS, currentArch),
+			name: "x86_64 spelling", goos: "linux", arch: "amd64",
+			assets: []string{"tool-x86_64-unknown-linux-musl.tar.gz", "tool-aarch64-unknown-linux-musl.tar.gz"},
+			want:   "tool-x86_64-unknown-linux-musl.tar.gz",
+		},
+		{
+			name: "musl over gnu", goos: "linux", arch: "amd64",
+			assets: []string{"tool-x86_64-unknown-linux-gnu.tar.gz", "tool-x86_64-unknown-linux-musl.tar.gz"},
+			want:   "tool-x86_64-unknown-linux-musl.tar.gz", wantDropped: map[string]string{"tool-x86_64-unknown-linux-gnu.tar.gz": stageMusl},
+		},
+		{
+			name: "android disqualifies", goos: "linux", arch: "arm64",
+			assets: []string{"tool-aarch64-linux-android.tar.gz", "tool-aarch64-unknown-linux-gnu.tar.gz"},
+			want:   "tool-aarch64-unknown-linux-gnu.tar.gz", wantDropped: map[string]string{"tool-aarch64-linux-android.tar.gz": stageOS},
+		},
+		{
+			name: "darwin universal without arch", goos: "darwin", arch: "arm64",
+			assets: []string{"tool_darwin_amd64.tar.gz", "tool_darwin_all.tar.gz"},
+			want:   "tool_darwin_all.tar.gz",
+		},
+		{
+			name: "exact arch over universal", goos: "darwin", arch: "arm64",
+			assets: []string{"tool_darwin_all.tar.gz", "tool_darwin_arm64.tar.gz"},
+			want:   "tool_darwin_arm64.tar.gz", wantDropped: map[string]string{"tool_darwin_all.tar.gz": stageExact},
+		},
+		{
+			name: "no rosetta fallback", goos: "darwin", arch: "arm64",
+			assets:  []string{"tool-x86_64-apple-darwin.tar.gz"},
+			wantErr: errNoAsset,
+		},
+		{
+			name: "linux requires arch token", goos: "linux", arch: "amd64",
+			assets:  []string{"tool_linux.tar.gz"},
+			wantErr: errNoAsset,
+		},
+		{
+			name: "denylist", goos: "linux", arch: "amd64",
+			assets:  []string{"tool_linux_amd64.deb", "tool_linux_amd64.tar.gz.sha256", "tool_linux_amd64.tar.gz.sig"},
+			wantErr: errNoAsset,
+		},
+		{
+			name: "plain build over variant", goos: "linux", arch: "amd64",
+			assets: []string{"tool_extended_linux_amd64.tar.gz", "tool_linux_amd64.tar.gz"},
+			want:   "tool_linux_amd64.tar.gz", wantDropped: map[string]string{"tool_extended_linux_amd64.tar.gz": stageVariant},
+		},
+		{
+			name: "archive over bare binary", goos: "linux", arch: "amd64",
+			assets: []string{"tool_linux_amd64", "tool_linux_amd64.zip", "tool_linux_amd64.tar.gz"},
+			want:   "tool_linux_amd64.tar.gz",
+		},
+		{
+			name: "bare binary is a candidate", goos: "linux", arch: "amd64",
+			assets: []string{"tool.linux-amd64"},
+			want:   "tool.linux-amd64",
+		},
+		{
+			name: "canonical spelling over legacy alias", goos: "linux", arch: "amd64",
+			assets: []string{"tool_Linux-64bit.tar.gz", "tool_linux-amd64.tar.gz"},
+			want:   "tool_linux-amd64.tar.gz", wantDropped: map[string]string{"tool_Linux-64bit.tar.gz": stageSpelling},
+		},
+		{
+			name: "tie is ambiguous", goos: "linux", arch: "amd64",
+			assets:  []string{"a_linux_amd64.tar.gz", "b_linux_amd64.tar.gz"},
+			wantErr: ErrAmbiguousAsset,
+		},
+		{
+			name: "other goarch by literal name", goos: "linux", arch: "riscv64",
+			assets: []string{"tool_linux_amd64.tar.gz", "tool_linux_riscv64.tar.gz"},
+			want:   "tool_linux_riscv64.tar.gz",
 		},
 	}
 
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			assets := make([]ReleaseAsset, len(tc.assets))
+			for i, n := range tc.assets {
+				assets[i] = ReleaseAsset{Name: n, URL: "https://example.com/" + n}
+			}
 
-			cfg, err := DefaultConfig()
-			require.NoError(t, err)
-
-			asset, err := parseAsset(tc.assets, cfg, tc.repoOwner, tc.repoName)
-
-			if tc.expectError {
-				assert.Error(t, err)
-				if tc.errorMsg != "" {
-					assert.Contains(t, err.Error(), tc.errorMsg)
+			got, cands, err := selectAsset(assets, tc.goos, tc.arch)
+			switch {
+			case tc.wantErr == errNoAsset:
+				require.Error(t, err)
+				assert.NotErrorIs(t, err, ErrAmbiguousAsset)
+			case tc.wantErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+			default:
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got.Name)
+			}
+			assert.Len(t, cands, len(tc.assets))
+			for _, c := range cands {
+				if stage, ok := tc.wantDropped[c.name]; ok {
+					assert.Equal(t, stage, c.stage, c.name)
 				}
-				assert.Nil(t, asset)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, asset)
-				assert.Equal(t, tc.expectedOS, asset.OS)
-				assert.Equal(t, tc.expectedArch, asset.Arch)
-				assert.Equal(t, tc.repoOwner, asset.RepoOwner)
-				assert.Equal(t, tc.repoName, asset.RepoName)
-				assert.NotEmpty(t, asset.Name)
-				assert.NotEmpty(t, asset.DownloadURL)
-				assert.True(t, strings.HasPrefix(asset.DownloadURL, "https://"))
 			}
 		})
 	}
+}
+
+// errNoAsset marks a TestSelectAsset case that expects no candidate at all.
+var errNoAsset = errors.New("no asset")
+
+func TestParseAssetKeepsPublishedCase(t *testing.T) {
+	cfg := &Config{OS: "linux", Arch: "amd64"}
+	assets := []ReleaseAsset{{Name: "Tool_Linux_x86_64.tar.gz", URL: "https://example.com/Tool_Linux_x86_64.tar.gz"}}
+
+	asset, err := parseAsset(assets, cfg, "owner", "tool")
+	require.NoError(t, err)
+	assert.Equal(t, "Tool_Linux_x86_64.tar.gz", asset.Name)
+	assert.Equal(t, "https://example.com/Tool_Linux_x86_64.tar.gz", asset.DownloadURL)
 }

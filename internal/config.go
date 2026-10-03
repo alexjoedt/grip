@@ -9,14 +9,12 @@ import (
 
 // Config holds grip configuration with no global state
 type Config struct {
-	HomeDir     string
-	BinDir      string
-	StorePath   string
-	TempDir     string
-	OS          string
-	Arch        string
-	OSAliases   map[string][]string
-	ArchAliases map[string][]string
+	HomeDir   string
+	BinDir    string
+	StorePath string
+	TempDir   string
+	OS        string
+	Arch      string
 }
 
 // DefaultConfig creates config with sensible defaults
@@ -39,14 +37,6 @@ func DefaultConfig() (*Config, error) {
 		TempDir:   os.TempDir(),
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
-		OSAliases: map[string][]string{
-			"darwin": {"macos", "mac"},
-			"linux":  {"musl"},
-		},
-		ArchAliases: map[string][]string{
-			"amd64": {"x86_64"},
-			"arm64": {"aarch64", "universal"},
-		},
 	}, nil
 }
 

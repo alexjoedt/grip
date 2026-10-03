@@ -70,34 +70,3 @@ func TestInstallAlreadyInstalledAnySpelling(t *testing.T) {
 		}
 	}
 }
-
-func TestMatchesPlatform(t *testing.T) {
-	cfg, err := DefaultConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
-		file, os, arch string
-		want           bool
-	}{
-		{"tool_linux_amd64.tar.gz", "linux", "amd64", true},
-		{"tool_darwin_arm64.tar.gz", "darwin", "arm64", true},
-		{"Tool-Linux-AMD64.tar.gz", "linux", "amd64", true},
-		{"tool_macos_arm64.tar.gz", "darwin", "arm64", true},
-		{"tool_mac_amd64.zip", "darwin", "amd64", true},
-		{"tool_x86_64-unknown-linux-musl.tar.gz", "linux", "amd64", true},
-		{"tool_linux_x86_64.tar.gz", "linux", "amd64", true},
-		{"tool_linux_aarch64.tar.gz", "linux", "arm64", true},
-		{"tool_darwin_universal.tar.gz", "darwin", "arm64", true},
-		{"tool_windows_amd64.zip", "linux", "amd64", false},
-		{"tool_linux_amd64.tar.gz", "darwin", "amd64", false},
-		{"tool_linux_amd64.tar.gz", "linux", "arm64", false},
-		// Substring matching lets "arm" match "arm64"; scoring is epic 03.
-	}
-	for _, tt := range tests {
-		got := MatchesPlatform(tt.file, tt.os, tt.arch, cfg.OSAliases, cfg.ArchAliases)
-		if got != tt.want {
-			t.Errorf("MatchesPlatform(%q, %s, %s) = %v, want %v", tt.file, tt.os, tt.arch, got, tt.want)
-		}
-	}
-}

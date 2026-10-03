@@ -9,4 +9,5 @@ var (
 	ErrInvalidRepo    error = errors.New("invalid repository path")
 	ErrNotFound       error = errors.New("not found")
 	ErrAlreadyExists  error = errors.New("already exists")
+	ErrAmbiguousAsset error = errors.New("several assets match")
 )
