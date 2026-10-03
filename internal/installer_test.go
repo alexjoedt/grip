@@ -2,6 +2,7 @@ package grip
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ulikunitz/xz"
 )
 
 const fixtureRepo = "owner/grip-fixture-zz"
@@ -22,6 +25,7 @@ type installerEnv struct {
 	cfg     *Config
 	storage *Storage
 	srv     *httptest.Server
+	files   map[string][]byte // served instead of the tar.gz fixture by path
 }
 
 func newInstallerEnv(t *testing.T) *installerEnv {
@@ -41,16 +45,21 @@ func newInstallerEnv(t *testing.T) *installerEnv {
 	}
 
 	archive := createTestTarGz(t)
+	files := map[string][]byte{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/fail" {
 			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		if b, ok := files[r.URL.Path]; ok {
+			_, _ = w.Write(b)
 			return
 		}
 		_, _ = w.Write(archive)
 	}))
 	t.Cleanup(srv.Close)
 
-	return &installerEnv{cfg: cfg, storage: storage, srv: srv}
+	return &installerEnv{cfg: cfg, storage: storage, srv: srv, files: files}
 }
 
 func (e *installerEnv) release(tag, path string) *Release {
@@ -146,6 +155,58 @@ func TestInstallNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.assertInstalled(t, "grip-fixture-zz", "v1.0.0")
+}
+
+func TestInstallSingleFileAsset(t *testing.T) {
+	bin := append(machOBinary(), make([]byte, 100)...)
+	var gz, xzb bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	if _, err := gw.Write(bin); err != nil || gw.Close() != nil {
+		t.Fatal(err)
+	}
+	xw, err := xz.NewWriter(&xzb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xw.Write(bin); err != nil || xw.Close() != nil {
+		t.Fatal(err)
+	}
+
+	for suffix, content := range map[string][]byte{"": bin, ".gz": gz.Bytes(), ".xz": xzb.Bytes()} {
+		t.Run("bare"+suffix, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			name := fmt.Sprintf("tool_%s_%s%s", e.cfg.OS, e.cfg.Arch, suffix)
+			e.files["/"+name] = content
+			rel := &Release{Tag: "v1.0.0", Assets: []ReleaseAsset{{Name: name, URL: e.srv.URL + "/" + name}}}
+
+			if err := e.installer(fakeSource{release: rel}).Install(context.Background(), InstallOptions{Repo: fixtureRepo}); err != nil {
+				t.Fatal(err)
+			}
+			e.assertInstalled(t, "grip-fixture-zz", "v1.0.0")
+			if got, err := os.ReadFile(filepath.Join(e.cfg.BinDir, "grip-fixture-zz")); err != nil || !bytes.Equal(got, bin) {
+				t.Errorf("installed binary differs from the asset content: %v", err)
+			}
+		})
+	}
+
+	t.Run("bare non-executable", func(t *testing.T) {
+		e := newInstallerEnv(t)
+		name := fmt.Sprintf("tool_%s_%s", e.cfg.OS, e.cfg.Arch)
+		e.files["/"+name] = []byte("#!/bin/sh\necho hi\n")
+		rel := &Release{Tag: "v1.0.0", Assets: []ReleaseAsset{{Name: name, URL: e.srv.URL + "/" + name}}}
+
+		err := e.installer(fakeSource{release: rel}).Install(context.Background(), InstallOptions{Repo: fixtureRepo})
+		if err == nil || !strings.Contains(err.Error(), "neither a supported archive nor an executable") {
+			t.Fatalf("err = %v, want not-an-executable error", err)
+		}
+		if _, err := os.Lstat(filepath.Join(e.cfg.BinDir, "grip-fixture-zz")); !os.IsNotExist(err) {
+			t.Errorf("bin entry exists after failed install: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(e.cfg.HomeDir, "pkgs", "grip-fixture-zz")); !os.IsNotExist(err) {
+			t.Errorf("store dir exists after failed install: %v", err)
+		}
+		e.assertEmptyState(t)
+	})
 }
 
 func TestInstallForce(t *testing.T) {

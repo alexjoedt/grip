@@ -45,7 +45,7 @@ func TestUnpacker(t *testing.T) {
 		assert.FileExists(t, execPath)
 	})
 
-	t.Run("unsupported format", func(t *testing.T) {
+	t.Run("neither archive nor executable", func(t *testing.T) {
 		t.Parallel()
 
 		tempDir := filepath.Join(os.TempDir(), "test-unpack-invalid")
@@ -59,7 +59,7 @@ func TestUnpacker(t *testing.T) {
 		_, err := Unpack(archivePath, destDir, darwinAmd64)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported archive format")
+		assert.Contains(t, err.Error(), "test.txt is neither a supported archive nor an executable for darwin/amd64")
 	})
 
 	t.Run("IsSupportedFormat", func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestUnpackTarBz2Direct(t *testing.T) {
 	assert.Equal(t, "hello from tar.bz2", string(got))
 }
 
-// TestUnpackBz2Direct tests unpackBz2 (raw bzip2, no tar layer) directly.
+// TestUnpackBz2Direct tests the single-file bzip2 unpacker (no tar layer) directly.
 // The test is skipped when bzip2 is not available on the host.
 func TestUnpackBz2Direct(t *testing.T) {
 	t.Parallel()
@@ -320,7 +320,7 @@ func TestUnpackBz2Direct(t *testing.T) {
 
 	content := []byte("hello from raw bz2")
 	compressed := bzip2Compress(t, content)
-	require.NoError(t, unpackBz2(writeArchive(t, "hello.txt.bz2", compressed), openRoot(t, dest), silentBar()))
+	require.NoError(t, unpackers[".bz2"](writeArchive(t, "hello.txt.bz2", compressed), openRoot(t, dest), silentBar()))
 	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello from raw bz2", string(got))

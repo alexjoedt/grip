@@ -29,7 +29,9 @@ var unpackers = map[string]unpackFn{
 	".tbz":     unpackTarBz2,
 	".zip":     unpackZip,
 	".tar.xz":  unpackTarXz,
-	".bz2":     unpackBz2,
+	".gz":      unpackSingle(".gz", gunzip),
+	".xz":      unpackSingle(".xz", unxz),
+	".bz2":     unpackSingle(".bz2", bunzip2),
 }
 
 // orderedExts lists supported archive extensions sorted by descending length
@@ -42,19 +44,23 @@ var orderedExts = []string{
 	".tbz",
 	".zip",
 	".bz2",
+	".gz",
+	".xz",
 }
 
 // Unpack extracts an archive file to the destination directory and returns
-// the path of the executable selected by q.
+// the path of the executable selected by q. A single-file .gz, .xz or .bz2
+// decompresses to one file; an asset without archive extension is used as is.
+// Either must be an executable for q's target.
 func Unpack(archivePath, destDir string, q binaryQuery) (string, error) {
 	archiveInfo, err := os.Stat(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("stat archive: %w", err)
 	}
 
-	_, fn, err := getUnpackFn(archivePath)
+	ext, fn, err := getUnpackFn(archivePath)
 	if err != nil {
-		return "", err
+		return bareBinary(archivePath, q)
 	}
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -71,11 +77,23 @@ func Unpack(archivePath, destDir string, q binaryQuery) (string, error) {
 	}
 	fmt.Println() // new line after progress bar
 
+	switch ext {
+	case ".gz", ".xz", ".bz2":
+		return bareBinary(filepath.Join(destDir, singleName(archivePath, ext)), q)
+	}
 	execPath, err := findBinary(destDir, q)
 	if err != nil {
 		return "", fmt.Errorf("find executable: %w", err)
 	}
 	return execPath, nil
+}
+
+// bareBinary returns path when it is an executable for q's target.
+func bareBinary(path string, q binaryQuery) (string, error) {
+	if !executableFor(path, q.OS, q.Arch) {
+		return "", fmt.Errorf("%s is neither a supported archive nor an executable for %s/%s", filepath.Base(path), q.OS, q.Arch)
+	}
+	return path, nil
 }
 
 // IsSupportedFormat reports whether filename has a supported archive extension.
@@ -292,28 +310,42 @@ func openTar(archivePath string, root *os.Root, bar *progressbar.ProgressBar, de
 	return unpackTar(r, root)
 }
 
+func gunzip(r io.Reader) (io.Reader, error)  { return gzip.NewReader(r) }
+func unxz(r io.Reader) (io.Reader, error)    { return xz.NewReader(r) }
+func bunzip2(r io.Reader) (io.Reader, error) { return bzip2.NewReader(r), nil }
+
 func unpackTarGz(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
-	return openTar(archivePath, root, bar, func(r io.Reader) (io.Reader, error) { return gzip.NewReader(r) })
+	return openTar(archivePath, root, bar, gunzip)
 }
 
 func unpackTarBz2(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
-	return openTar(archivePath, root, bar, func(r io.Reader) (io.Reader, error) { return bzip2.NewReader(r), nil })
+	return openTar(archivePath, root, bar, bunzip2)
 }
 
 func unpackTarXz(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
-	return openTar(archivePath, root, bar, func(r io.Reader) (io.Reader, error) { return xz.NewReader(r) })
+	return openTar(archivePath, root, bar, unxz)
 }
 
-// unpackBz2 decompresses a single-file .bz2 into root, named after the archive without its extension.
-func unpackBz2(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+// singleName is the file a single-file compressed asset decompresses to.
+func singleName(archivePath, ext string) string {
 	name := filepath.Base(archivePath)
-	name = name[:len(name)-len(".bz2")]
-	return writeFile(root, name, 0o644, bzip2.NewReader(io.TeeReader(f, bar)))
+	return name[:len(name)-len(ext)]
+}
+
+// unpackSingle decompresses a single-file asset into root under singleName.
+func unpackSingle(ext string, decompress func(io.Reader) (io.Reader, error)) unpackFn {
+	return func(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+		f, err := os.Open(archivePath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		r, err := decompress(io.TeeReader(f, bar))
+		if err != nil {
+			return err
+		}
+		return writeFile(root, singleName(archivePath, ext), 0o644, r)
+	}
 }
 
 func unpackZip(archivePath string, root *os.Root, bar *progressbar.ProgressBar) (err error) {
