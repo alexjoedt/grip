@@ -1,6 +1,7 @@
 package grip
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,7 +10,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
+
+	"github.com/alexjoedt/grip/internal/logger"
 )
 
 const stateVersion = 2
@@ -82,6 +86,37 @@ func (s *Storage) InstallDir(inst *Installation) string {
 		return inst.InstallPath
 	}
 	return s.binDir
+}
+
+// Lock takes the exclusive operation lock <state>.lock, waiting until it is
+// free or ctx is done. Reads need no lock since saves replace the file by rename.
+func (s *Storage) Lock(ctx context.Context) (unlock func(), err error) {
+	f, err := os.OpenFile(s.filepath+".lock", os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open lock: %w", err)
+	}
+
+	waiting := false
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return func() { f.Close() }, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			f.Close()
+			return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
+		}
+		if !waiting {
+			logger.Warn("waiting for another grip process")
+			waiting = true
+		}
+		select {
+		case <-ctx.Done():
+			f.Close()
+			return nil, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // Get retrieves installation by name

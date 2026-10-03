@@ -29,7 +29,7 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				Usage:   "forces remove without confirmation",
 			},
 		},
-		Action: func(_ context.Context, c *cli.Command) error {
+		Action: func(ctx context.Context, c *cli.Command) error {
 			installer, storage, err := setup()
 			if err != nil {
 				return err
@@ -47,7 +47,7 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				}
 
 				for _, inst := range installations {
-					if err := installer.Remove(inst.Name); err != nil {
+					if err := installer.Remove(ctx, inst.Name); err != nil {
 						logger.Error("Failed to remove %s: %v", inst.Name, err)
 						continue
 					}
@@ -70,7 +70,7 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				}
 			}
 
-			return installer.Remove(name)
+			return installer.Remove(ctx, name)
 		},
 	}
 	app.Commands = append(app.Commands, cmd)

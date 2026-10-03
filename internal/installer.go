@@ -43,6 +43,15 @@ type InstallOptions struct {
 
 // Install installs a package from GitHub
 func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
+	unlock, err := i.storage.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return i.install(ctx, opts)
+}
+
+func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	repo, err := ParseRepo(opts.Repo)
 	if err != nil {
 		return err
@@ -165,7 +174,12 @@ func tagOrLatest(tag string) string {
 
 // Update updates an installed package
 func (i *Installer) Update(ctx context.Context, name string) error {
-	// Get current installation
+	unlock, err := i.storage.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	inst, err := i.storage.Get(name)
 	if err != nil {
 		return fmt.Errorf("package not found: %s", name)
@@ -176,7 +190,7 @@ func (i *Installer) Update(ctx context.Context, name string) error {
 		opts.Alias = name
 	}
 
-	return i.Install(ctx, opts)
+	return i.install(ctx, opts)
 }
 
 // downloadAndUnpack downloads an asset archive and unpacks it.
@@ -223,7 +237,13 @@ func (i *Installer) installAsset(ctx context.Context, asset *Asset) error {
 }
 
 // Remove removes an installed package
-func (i *Installer) Remove(name string) error {
+func (i *Installer) Remove(ctx context.Context, name string) error {
+	unlock, err := i.storage.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	inst, err := i.storage.Get(name)
 	if err != nil {
 		return fmt.Errorf("package not found: %s", name)

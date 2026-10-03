@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const fixtureRepo = "owner/grip-fixture-zz"
@@ -160,7 +162,7 @@ func TestRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := inst.Remove("grip-fixture-zz"); err != nil {
+	if err := inst.Remove(context.Background(), "grip-fixture-zz"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(e.cfg.BinDir, "grip-fixture-zz")); !os.IsNotExist(err) {
@@ -168,7 +170,7 @@ func TestRemove(t *testing.T) {
 	}
 	e.assertEmptyState(t)
 
-	if err := inst.Remove("unknown-zz"); err == nil {
+	if err := inst.Remove(context.Background(), "unknown-zz"); err == nil {
 		t.Error("remove of unknown package succeeded")
 	}
 }
@@ -263,5 +265,74 @@ func TestInstallRejectsUnsafeTag(t *testing.T) {
 	err := e.installer(fakeSource{release: e.release("..", "/fail")}).Install(context.Background(), InstallOptions{Repo: fixtureRepo})
 	if err == nil || !strings.Contains(err.Error(), "invalid release tag") {
 		t.Fatalf("Install err = %v, want invalid release tag", err)
+	}
+}
+
+func TestInstallConcurrent(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+
+	const n = 8
+	errs := make(chan error, n+2)
+	var wg sync.WaitGroup
+	for k := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(ctx, InstallOptions{Repo: fmt.Sprintf("owner/gfz-par-%d", k)})
+		}()
+	}
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true})
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	all, err := e.storage.List()
+	if err != nil || len(all) != n+1 {
+		t.Fatalf("List() = %d entries, %v; want %d", len(all), err, n+1)
+	}
+	e.assertInstalled(t, "grip-fixture-zz", "v1.0.0")
+}
+
+func TestLockWaitsAndHonorsContext(t *testing.T) {
+	e := newInstallerEnv(t)
+	unlock, err := e.storage.Lock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := e.storage.Lock(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Lock while held err = %v, want DeadlineExceeded", err)
+	}
+
+	acquired := make(chan error, 1)
+	go func() {
+		u, err := e.storage.Lock(context.Background())
+		if err == nil {
+			u()
+		}
+		acquired <- err
+	}()
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case err := <-acquired:
+		t.Fatalf("Lock returned while held: %v", err)
+	default:
+	}
+	unlock()
+	if err := <-acquired; err != nil {
+		t.Fatalf("Lock after release: %v", err)
 	}
 }
