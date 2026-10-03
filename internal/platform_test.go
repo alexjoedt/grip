@@ -62,11 +62,14 @@ func TestInstallAlreadyInstalledAnySpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A nil source panics on any forge request.
 	inst := NewInstaller(cfg, storage, nil, nil)
 	for _, ref := range []string{"owner/repo", "github.com/owner/repo", "https://github.com/owner/repo/"} {
-		err := inst.Install(context.Background(), InstallOptions{Repo: ref})
-		if err == nil || !strings.Contains(err.Error(), "already installed") {
-			t.Errorf("Install(%q) err = %v, want already installed", ref, err)
+		if err := inst.Install(context.Background(), InstallOptions{Repo: ref}); err != nil {
+			t.Errorf("Install(%q) err = %v, want no-op", ref, err)
 		}
+	}
+	if err := inst.Install(context.Background(), InstallOptions{Repo: "owner/repo", Tag: "v0.9.0"}); err == nil || !strings.Contains(err.Error(), "already installed") {
+		t.Errorf("Install at another tag err = %v, want already installed", err)
 	}
 }

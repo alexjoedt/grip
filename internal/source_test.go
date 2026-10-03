@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -18,6 +19,22 @@ func (f fakeSource) LatestRelease(context.Context, Repo) (*Release, error) {
 
 func (f fakeSource) ReleaseByTag(context.Context, Repo, string) (*Release, error) {
 	return f.release, f.err
+}
+
+// countingSource counts forge requests.
+type countingSource struct {
+	Source
+	calls atomic.Int64
+}
+
+func (c *countingSource) LatestRelease(ctx context.Context, r Repo) (*Release, error) {
+	c.calls.Add(1)
+	return c.Source.LatestRelease(ctx, r)
+}
+
+func (c *countingSource) ReleaseByTag(ctx context.Context, r Repo, tag string) (*Release, error) {
+	c.calls.Add(1)
+	return c.Source.ReleaseByTag(ctx, r, tag)
 }
 
 func TestInstallRejectsMalformedRelease(t *testing.T) {

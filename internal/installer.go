@@ -46,6 +46,7 @@ type InstallOptions struct {
 	Bin   string // base name of the executable in the archive, remembered
 
 	requireDigest bool
+	release       *Release // already fetched, skips the forge request
 }
 
 // Install installs a package from GitHub
@@ -123,7 +124,15 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		if existing.Name != installName {
 			return fmt.Errorf("%s is already installed as %s, remove it first", repo, existing.Name)
 		}
-		if !opts.Force {
+		switch {
+		case opts.Force:
+		case opts.Tag == "":
+			logger.Println("%s %s is already installed, update it with: grip update %s", existing.Name, existing.Tag, existing.Name)
+			return nil
+		case opts.Tag == existing.Tag:
+			logger.Println("%s %s is already installed", existing.Name, existing.Tag)
+			return nil
+		default:
 			return fmt.Errorf("%s version %s is already installed", existing.Name, existing.Tag)
 		}
 	}
@@ -138,11 +147,12 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("%s is already installed from another source: %s", installName, p)
 	}
 
-	// Fetch release
-	logger.Info("Fetching release %s for %s", tagOrLatest(opts.Tag), repo)
-	release, err := fetchRelease(ctx, i.source, repo, opts.Tag)
-	if err != nil {
-		return err
+	release := opts.release
+	if release == nil {
+		logger.Info("Fetching release %s for %s", tagOrLatest(opts.Tag), repo)
+		if release, err = fetchRelease(ctx, i.source, repo, opts.Tag); err != nil {
+			return err
+		}
 	}
 
 	dir, err := tagDir(release.Tag)
@@ -216,7 +226,11 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		logger.Warn("The grip path '%s' isn't in PATH", i.config.BinDir)
 	}
 
-	logger.Success("%s@%s installed successfully", installName, asset.Tag)
+	if existing != nil && existing.Tag != inst.Tag {
+		logger.Success("%s updated from %s to %s", installName, existing.Tag, inst.Tag)
+	} else {
+		logger.Success("%s@%s installed successfully", installName, asset.Tag)
+	}
 	return nil
 }
 
@@ -263,8 +277,23 @@ func (i *Installer) update(ctx context.Context, name, asset, bin string, require
 		return fmt.Errorf("package not found: %s", name)
 	}
 
-	opts := InstallOptions{Repo: inst.Repo, Force: true, Asset: asset, Bin: bin, requireDigest: requireDigest}
-	if repo, err := ParseRepo(inst.Repo); err == nil && repo.Name != name {
+	repo, err := ParseRepo(inst.Repo)
+	if err != nil {
+		return err
+	}
+	// "Newer" is tag inequality with the latest release, not semver order.
+	logger.Info("Fetching release latest for %s", repo)
+	release, err := fetchRelease(ctx, i.source, repo, "")
+	if err != nil {
+		return err
+	}
+	if release.Tag == inst.Tag && asset == "" && bin == "" {
+		logger.Println("%s is already at %s", name, inst.Tag)
+		return nil
+	}
+
+	opts := InstallOptions{Repo: inst.Repo, Force: true, Asset: asset, Bin: bin, requireDigest: requireDigest, release: release}
+	if repo.Name != name {
 		opts.Alias = name
 	}
 

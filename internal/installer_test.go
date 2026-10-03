@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +33,7 @@ type installerEnv struct {
 	storage *Storage
 	srv     *httptest.Server
 	files   map[string][]byte // served instead of the tar.gz fixture by path
+	hits    *atomic.Int64     // requests to srv
 }
 
 func newInstallerEnv(t *testing.T) *installerEnv {
@@ -50,7 +54,9 @@ func newInstallerEnv(t *testing.T) *installerEnv {
 
 	archive := createTestTarGz(t)
 	files := map[string][]byte{}
+	hits := new(atomic.Int64)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
 		if r.URL.Path == "/fail" {
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
@@ -63,7 +69,7 @@ func newInstallerEnv(t *testing.T) *installerEnv {
 	}))
 	t.Cleanup(srv.Close)
 
-	return &installerEnv{cfg: cfg, storage: storage, srv: srv, files: files}
+	return &installerEnv{cfg: cfg, storage: storage, srv: srv, files: files, hits: hits}
 }
 
 func (e *installerEnv) release(tag, path string) *Release {
@@ -215,19 +221,111 @@ func TestInstallSingleFileAsset(t *testing.T) {
 
 func TestInstallForce(t *testing.T) {
 	e := newInstallerEnv(t)
-	inst := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")})
+	src := &countingSource{Source: fakeSource{release: e.release("v1.0.0", "/ok")}}
+	inst := e.installer(src)
 	ctx := context.Background()
 
 	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
 		t.Fatal(err)
 	}
-	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo}); err == nil {
-		t.Fatal("second install without Force succeeded")
+	src.calls.Store(0)
+	e.hits.Store(0)
+	before := e.snapshot(t)
+	for _, tag := range []string{"", "v1.0.0"} {
+		if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo, Tag: tag}); err != nil {
+			t.Fatalf("install of installed package at %q: %v", tag, err)
+		}
 	}
+	if n, h := src.calls.Load(), e.hits.Load(); n != 0 || h != 0 {
+		t.Errorf("no-op install sent %d forge and %d asset requests, want 0", n, h)
+	}
+	if after := e.snapshot(t); !maps.Equal(before, after) {
+		t.Errorf("no-op install changed the home:\n%v\n%v", before, after)
+	}
+	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo, Tag: "v0.9.0"}); err == nil {
+		t.Error("install at another tag without Force succeeded")
+	}
+
 	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true}); err != nil {
 		t.Fatalf("install with Force: %v", err)
 	}
+	if e.hits.Load() != 1 {
+		t.Errorf("install with Force sent %d asset requests, want 1", e.hits.Load())
+	}
 	e.assertInstalled(t, "grip-fixture-zz", "v1.0.0")
+}
+
+// snapshot maps every path under the grip home to its content or link target.
+func (e *installerEnv) snapshot(t *testing.T) map[string]string {
+	t.Helper()
+	m := map[string]string{}
+	err := filepath.WalkDir(e.cfg.HomeDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			target, err := os.Readlink(p)
+			m[p] = "-> " + target
+			return err
+		}
+		b, err := os.ReadFile(p)
+		m[p] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestUpdateCurrentSkipsDownload(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	src := &countingSource{Source: fakeSource{release: e.release("v1.0.0", "/ok")}}
+	inst := e.installer(src)
+	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+
+	src.calls.Store(0)
+	e.hits.Store(0)
+	before := e.snapshot(t)
+	if err := inst.Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if e.hits.Load() != 0 {
+		t.Errorf("update of a current package sent %d asset requests, want 0", e.hits.Load())
+	}
+	if src.calls.Load() != 1 {
+		t.Errorf("update sent %d forge requests, want 1", src.calls.Load())
+	}
+	if after := e.snapshot(t); !maps.Equal(before, after) {
+		t.Errorf("update of a current package changed the home:\n%v\n%v", before, after)
+	}
+
+	for _, ov := range []struct{ asset, bin string }{{"tool_darwin_amd64.tar.gz", ""}, {"", "test-executable"}} {
+		e.hits.Store(0)
+		if err := inst.Update(ctx, name, ov.asset, ov.bin); err != nil {
+			t.Fatalf("update with override %+v: %v", ov, err)
+		}
+		if e.hits.Load() != 1 {
+			t.Errorf("update with override %+v sent %d asset requests, want 1", ov, e.hits.Load())
+		}
+	}
+	if got, err := e.storage.Get(name); err != nil || got.BinOverride != "test-executable" || got.AssetOverride == "" {
+		t.Errorf("overrides after update = %+v, %v", got, err)
+	}
+
+	src = &countingSource{Source: fakeSource{release: e.release("v1.1.0", "/ok")}}
+	if err := e.installer(src).Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if src.calls.Load() != 1 {
+		t.Errorf("update to a new tag sent %d forge requests, want 1", src.calls.Load())
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+	e.assertStore(t, name, "v1.0.0", "v1.0.0", "v1.1.0")
 }
 
 func TestInstallAlias(t *testing.T) {
