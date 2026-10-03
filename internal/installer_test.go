@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -185,5 +186,82 @@ func TestInstallFailureLeavesNoState(t *testing.T) {
 			}
 			e.assertEmptyState(t)
 		})
+	}
+}
+
+func TestValidName(t *testing.T) {
+	tests := map[string]bool{
+		"rg": true, "gh-dash": true, "yq_4": true, "go1.22": true, "c++": true, "A": true,
+		"": false, ".": false, "..": false, "../x": false, "a/b": false, `a\b`: false, "a\x00b": false,
+		"-rf": false, ".hidden": false, "a b": false, " a": false, "a\n": false, "_x": false,
+	}
+	for name, ok := range tests {
+		if err := validName(name); (err == nil) != ok {
+			t.Errorf("validName(%q) = %v, want ok=%v", name, err, ok)
+		}
+	}
+}
+
+func TestTagDir(t *testing.T) {
+	tests := []struct {
+		tag, want string
+		ok        bool
+	}{
+		{"v1.2.3", "v1.2.3", true},
+		{"cli/v1.2.3", "cli%2Fv1.2.3", true},
+		{"14.1.0", "14.1.0", true},
+		{"", "", false},
+		{".", "", false},
+		{"..", "", false},
+	}
+	for _, tt := range tests {
+		got, err := tagDir(tt.tag)
+		if (err == nil) != tt.ok || got != tt.want {
+			t.Errorf("tagDir(%q) = %q, %v; want %q, ok=%v", tt.tag, got, err, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestInstallRejectsBeforeFetch(t *testing.T) {
+	errFetch := errors.New("fetch called")
+	tests := map[string]struct {
+		existing *Installation
+		opts     InstallOptions
+		want     string
+	}{
+		"alias escapes bin dir": {opts: InstallOptions{Repo: fixtureRepo, Alias: "../x"}, want: "invalid package name"},
+		"repo name invalid":     {opts: InstallOptions{Repo: "owner/.hidden"}, want: "invalid package name"},
+		"name used by other repo": {
+			existing: &Installation{Name: "grip-fixture-zz", Repo: "github.com/other/grip-fixture-zz"},
+			opts:     InstallOptions{Repo: fixtureRepo},
+			want:     "--alias",
+		},
+		"repo installed under other name": {
+			existing: &Installation{Name: "gfz", Repo: "github.com/owner/grip-fixture-zz"},
+			opts:     InstallOptions{Repo: fixtureRepo, Force: true},
+			want:     "remove it first",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			if tt.existing != nil {
+				if err := e.storage.Save(tt.existing); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := e.installer(fakeSource{err: errFetch}).Install(context.Background(), tt.opts)
+			if err == nil || errors.Is(err, errFetch) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Install err = %v, want %q before fetch", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestInstallRejectsUnsafeTag(t *testing.T) {
+	e := newInstallerEnv(t)
+	err := e.installer(fakeSource{release: e.release("..", "/fail")}).Install(context.Background(), InstallOptions{Repo: fixtureRepo})
+	if err == nil || !strings.Contains(err.Error(), "invalid release tag") {
+		t.Fatalf("Install err = %v, want invalid release tag", err)
 	}
 }

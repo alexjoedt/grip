@@ -2,11 +2,14 @@ package grip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/alexjoedt/grip/internal/logger"
@@ -52,10 +55,26 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		installName = opts.Alias
 	}
 
-	// Check if already installed
+	if err := validName(installName); err != nil {
+		return err
+	}
+
 	existing, err := i.storage.GetByRepo(repo)
-	if err == nil && !opts.Force {
-		return fmt.Errorf("%s version %s is already installed", existing.Name, existing.Tag)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if existing != nil {
+		if existing.Name != installName {
+			return fmt.Errorf("%s is already installed as %s, remove it first", repo, existing.Name)
+		}
+		if !opts.Force {
+			return fmt.Errorf("%s version %s is already installed", existing.Name, existing.Tag)
+		}
+	}
+	if other, err := i.storage.Get(installName); err == nil && existing == nil {
+		return fmt.Errorf("name %s is already used by %s, choose another with --alias", installName, other.Repo)
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
 	}
 
 	// Check if name conflicts with another source
@@ -67,6 +86,10 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	logger.Info("Fetching release %s for %s", tagOrLatest(opts.Tag), repo)
 	release, err := fetchRelease(ctx, i.source, repo, opts.Tag)
 	if err != nil {
+		return err
+	}
+
+	if _, err := tagDir(release.Tag); err != nil {
 		return err
 	}
 
@@ -113,6 +136,24 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 
 	logger.Success("%s@%s installed successfully", installName, asset.Tag)
 	return nil
+}
+
+var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
+
+// validName rejects install names that are not a safe single path segment.
+func validName(name string) error {
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("invalid package name %q: must match %s", name, namePattern)
+	}
+	return nil
+}
+
+// tagDir returns the directory name for a release tag.
+func tagDir(tag string) (string, error) {
+	if tag == "" || tag == "." || tag == ".." {
+		return "", fmt.Errorf("invalid release tag %q", tag)
+	}
+	return url.PathEscape(tag), nil
 }
 
 func tagOrLatest(tag string) string {
