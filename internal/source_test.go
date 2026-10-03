@@ -9,14 +9,15 @@ import (
 
 type fakeSource struct {
 	release *Release
+	err     error
 }
 
 func (f fakeSource) LatestRelease(context.Context, Repo) (*Release, error) {
-	return f.release, nil
+	return f.release, f.err
 }
 
 func (f fakeSource) ReleaseByTag(context.Context, Repo, string) (*Release, error) {
-	return f.release, nil
+	return f.release, f.err
 }
 
 func TestInstallRejectsMalformedRelease(t *testing.T) {
