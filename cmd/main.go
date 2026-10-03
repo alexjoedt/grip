@@ -42,7 +42,7 @@ func main() {
 	}
 
 	// Create GitHub client
-	ghClient := grip.NewGitHubClient()
+	source := grip.NewGitHubSource()
 
 	// Create HTTP client optimized for downloading large binary files
 	httpClient := &http.Client{
@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// Create installer
-	installer := grip.NewInstaller(cfg, storage, ghClient, httpClient)
+	installer := grip.NewInstaller(cfg, storage, source, httpClient)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

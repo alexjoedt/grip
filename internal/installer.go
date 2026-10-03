@@ -10,29 +10,22 @@ import (
 	"time"
 
 	"github.com/alexjoedt/grip/internal/logger"
-	"github.com/google/go-github/v56/github"
 )
-
-// GitHubClient interface for testing
-type GitHubClient interface {
-	GetLatestRelease(ctx context.Context, owner, repo string) (*github.RepositoryRelease, error)
-	GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*github.RepositoryRelease, error)
-}
 
 // Installer coordinates installation operations
 type Installer struct {
 	config     *Config
 	storage    *Storage
-	ghClient   GitHubClient
+	source     Source
 	httpClient *http.Client
 }
 
 // NewInstaller creates a new installer
-func NewInstaller(cfg *Config, storage *Storage, ghClient GitHubClient, httpClient *http.Client) *Installer {
+func NewInstaller(cfg *Config, storage *Storage, source Source, httpClient *http.Client) *Installer {
 	return &Installer{
 		config:     cfg,
 		storage:    storage,
-		ghClient:   ghClient,
+		source:     source,
 		httpClient: httpClient,
 	}
 }
@@ -76,16 +69,10 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	// Fetch release
-	var release *github.RepositoryRelease
-	if opts.Tag == "" {
-		logger.Info("Fetching latest release for %s/%s", owner, name)
-		release, err = i.ghClient.GetLatestRelease(ctx, owner, name)
-	} else {
-		logger.Info("Fetching release %s for %s/%s", opts.Tag, owner, name)
-		release, err = i.ghClient.GetReleaseByTag(ctx, owner, name, opts.Tag)
-	}
+	logger.Info("Fetching release %s for %s", tagOrLatest(opts.Tag), repo)
+	release, err := fetchRelease(ctx, i.source, repo, opts.Tag)
 	if err != nil {
-		return fmt.Errorf("fetch release: %w", err)
+		return err
 	}
 
 	// Parse asset for current platform
@@ -94,7 +81,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 
-	asset.Tag = *release.TagName
+	asset.Tag = release.Tag
 	asset.Alias = opts.Alias
 
 	// Install asset
@@ -132,6 +119,13 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 
 	logger.Success("%s@%s installed successfully", installName, asset.Tag)
 	return nil
+}
+
+func tagOrLatest(tag string) string {
+	if tag == "" {
+		return "latest"
+	}
+	return tag
 }
 
 // Update updates an installed package

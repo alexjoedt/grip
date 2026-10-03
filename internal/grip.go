@@ -18,8 +18,8 @@ func SelfUpdate(ctx context.Context, version string, installer *Installer) error
 	if installer == nil {
 		return fmt.Errorf("installer is required")
 	}
-	if installer.ghClient == nil {
-		return fmt.Errorf("installer: GitHub client is required")
+	if installer.source == nil {
+		return fmt.Errorf("installer: source is required")
 	}
 	if installer.config == nil {
 		return fmt.Errorf("installer: config is required")
@@ -35,13 +35,13 @@ func SelfUpdate(ctx context.Context, version string, installer *Installer) error
 	owner, name := repo.Owner, repo.Name
 
 	// Fetch latest release
-	release, err := installer.ghClient.GetLatestRelease(ctx, owner, name)
+	release, err := fetchRelease(ctx, installer.source, repo, "")
 	if err != nil {
 		return err
 	}
 
 	// Check if update is needed
-	latestTag := *release.TagName
+	latestTag := release.Tag
 	latestVersion, err := semver.Parse(latestTag)
 	if err != nil {
 		return err

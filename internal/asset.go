@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/alexjoedt/grip/internal/logger"
-	"github.com/google/go-github/v56/github"
 )
 
 // Asset describes a release asset (pure data structure)
@@ -40,11 +39,11 @@ func (a *Asset) BinaryName() string {
 }
 
 // parseAsset selects the appropriate asset for the platform
-func parseAsset(assets []*github.ReleaseAsset, cfg *Config, repoOwner, repoName string) (*Asset, error) {
+func parseAsset(assets []ReleaseAsset, cfg *Config, repoOwner, repoName string) (*Asset, error) {
 	logger.Info("Parsing %d release assets for %s_%s", len(assets), cfg.OS, cfg.Arch)
 
 	for _, a := range assets {
-		name := strings.ToLower(*a.Name)
+		name := strings.ToLower(a.Name)
 		logger.Info("Evaluating asset: %s", name)
 
 		if MatchesPlatform(name, cfg.OS, cfg.Arch, cfg.OSAliases, cfg.ArchAliases) && IsSupportedFormat(name) {
@@ -53,7 +52,7 @@ func parseAsset(assets []*github.ReleaseAsset, cfg *Config, repoOwner, repoName 
 				Name:        name,
 				OS:          cfg.OS,
 				Arch:        cfg.Arch,
-				DownloadURL: *a.BrowserDownloadURL,
+				DownloadURL: a.URL,
 				RepoOwner:   repoOwner,
 				RepoName:    repoName,
 			}, nil
@@ -62,5 +61,3 @@ func parseAsset(assets []*github.ReleaseAsset, cfg *Config, repoOwner, repoName 
 
 	return nil, fmt.Errorf("no asset found for %s_%s", cfg.OS, cfg.Arch)
 }
-
-

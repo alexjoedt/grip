@@ -15,7 +15,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-github/v56/github"
 	"github.com/schollz/progressbar/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -367,7 +366,7 @@ func TestParseAsset(t *testing.T) {
 
 	testCases := []struct {
 		name         string
-		assets       []*github.ReleaseAsset
+		assets       []ReleaseAsset
 		repoOwner    string
 		repoName     string
 		expectError  bool
@@ -377,18 +376,18 @@ func TestParseAsset(t *testing.T) {
 	}{
 		{
 			name: "successful parsing with matching asset",
-			assets: []*github.ReleaseAsset{
+			assets: []ReleaseAsset{
 				{
-					Name:               stringPtr("tool_windows_amd64.zip"),
-					BrowserDownloadURL: stringPtr("https://example.com/tool_windows_amd64.zip"),
+					Name: "tool_windows_amd64.zip",
+					URL:  "https://example.com/tool_windows_amd64.zip",
 				},
 				{
-					Name:               stringPtr(fmt.Sprintf("tool_%s_%s.tar.gz", currentOS, currentArch)),
-					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_%s.tar.gz", currentOS, currentArch)),
+					Name: fmt.Sprintf("tool_%s_%s.tar.gz", currentOS, currentArch),
+					URL:  fmt.Sprintf("https://example.com/tool_%s_%s.tar.gz", currentOS, currentArch),
 				},
 				{
-					Name:               stringPtr("tool_linux_arm64.tar.gz"),
-					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
+					Name: "tool_linux_arm64.tar.gz",
+					URL:  "https://example.com/tool_linux_arm64.tar.gz",
 				},
 			},
 			repoOwner:    "test-owner",
@@ -399,14 +398,14 @@ func TestParseAsset(t *testing.T) {
 		},
 		{
 			name: "no matching asset for current OS/Arch",
-			assets: []*github.ReleaseAsset{
+			assets: []ReleaseAsset{
 				{
-					Name:               stringPtr("tool_windows_amd64.zip"),
-					BrowserDownloadURL: stringPtr("https://example.com/tool_windows_amd64.zip"),
+					Name: "tool_windows_amd64.zip",
+					URL:  "https://example.com/tool_windows_amd64.zip",
 				},
 				{
-					Name:               stringPtr("tool_linux_arm64.tar.gz"),
-					BrowserDownloadURL: stringPtr("https://example.com/tool_linux_arm64.tar.gz"),
+					Name: "tool_linux_arm64.tar.gz",
+					URL:  "https://example.com/tool_linux_arm64.tar.gz",
 				},
 			},
 			repoOwner:   "test-owner",
@@ -416,10 +415,10 @@ func TestParseAsset(t *testing.T) {
 		},
 		{
 			name: "asset with unsupported extension",
-			assets: []*github.ReleaseAsset{
+			assets: []ReleaseAsset{
 				{
-					Name:               stringPtr(fmt.Sprintf("tool_%s_%s.exe", currentOS, currentArch)),
-					BrowserDownloadURL: stringPtr(fmt.Sprintf("https://example.com/tool_%s_%s.exe", currentOS, currentArch)),
+					Name: fmt.Sprintf("tool_%s_%s.exe", currentOS, currentArch),
+					URL:  fmt.Sprintf("https://example.com/tool_%s_%s.exe", currentOS, currentArch),
 				},
 			},
 			repoOwner:   "test-owner",
@@ -429,7 +428,7 @@ func TestParseAsset(t *testing.T) {
 		},
 		{
 			name:        "empty asset list",
-			assets:      []*github.ReleaseAsset{},
+			assets:      []ReleaseAsset{},
 			repoOwner:   "test-owner",
 			repoName:    "test-repo",
 			expectError: true,
@@ -465,11 +464,6 @@ func TestParseAsset(t *testing.T) {
 			}
 		})
 	}
-}
-
-// stringPtr is a helper function to create string pointers for test data
-func stringPtr(s string) *string {
-	return &s
 }
 
 // createMaliciousTarGz creates a tar.gz archive with a path traversal entry.

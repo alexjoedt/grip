@@ -6,26 +6,42 @@ import (
 	"github.com/google/go-github/v56/github"
 )
 
-// GitHubClientImpl implements GitHubClient using real GitHub API
-type GitHubClientImpl struct {
+// GitHubSource implements Source against the GitHub API.
+type GitHubSource struct {
 	client *github.Client
 }
 
-// NewGitHubClient creates a new GitHub client
-func NewGitHubClient() *GitHubClientImpl {
-	return &GitHubClientImpl{
-		client: github.NewClient(nil),
+// NewGitHubSource creates a GitHub source.
+func NewGitHubSource() *GitHubSource {
+	return &GitHubSource{client: github.NewClient(nil)}
+}
+
+// LatestRelease fetches the latest release.
+func (g *GitHubSource) LatestRelease(ctx context.Context, repo Repo) (*Release, error) {
+	rel, _, err := g.client.Repositories.GetLatestRelease(ctx, repo.Owner, repo.Name)
+	if err != nil {
+		return nil, err
 	}
+	return toRelease(rel), nil
 }
 
-// GetLatestRelease fetches the latest release
-func (g *GitHubClientImpl) GetLatestRelease(ctx context.Context, owner, repo string) (*github.RepositoryRelease, error) {
-	release, _, err := g.client.Repositories.GetLatestRelease(ctx, owner, repo)
-	return release, err
+// ReleaseByTag fetches a specific release by tag.
+func (g *GitHubSource) ReleaseByTag(ctx context.Context, repo Repo, tag string) (*Release, error) {
+	rel, _, err := g.client.Repositories.GetReleaseByTag(ctx, repo.Owner, repo.Name, tag)
+	if err != nil {
+		return nil, err
+	}
+	return toRelease(rel), nil
 }
 
-// GetReleaseByTag fetches a specific release by tag
-func (g *GitHubClientImpl) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*github.RepositoryRelease, error) {
-	release, _, err := g.client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
-	return release, err
+func toRelease(rel *github.RepositoryRelease) *Release {
+	r := &Release{Tag: rel.GetTagName()}
+	for _, a := range rel.Assets {
+		r.Assets = append(r.Assets, ReleaseAsset{
+			Name: a.GetName(),
+			URL:  a.GetBrowserDownloadURL(),
+			Size: int64(a.GetSize()),
+		})
+	}
+	return r
 }
