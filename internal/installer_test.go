@@ -1510,3 +1510,54 @@ func TestOutdated(t *testing.T) {
 		t.Errorf("outdated sent %d asset requests or changed the home", e.hits.Load())
 	}
 }
+
+func TestUpdateMany(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	for _, inst := range []*Installation{
+		{Name: "current", Repo: "github.com/o/current", Version: Version{Tag: "v1"}},
+		{Name: "old", Repo: "github.com/o/old", Version: Version{Tag: "v1"}},
+		{Name: "held", Repo: "github.com/o/held", Version: Version{Tag: "v1"}, Pinned: true},
+		{Name: "broken", Repo: "github.com/o/broken", Version: Version{Tag: "v1"}},
+	} {
+		if err := e.storage.Save(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tag := func(name string) string {
+		t.Helper()
+		inst, err := e.storage.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inst.Tag
+	}
+	src := repoSource{"current": e.release("v1", "/ok"), "old": e.release("v2", "/ok"), "held": e.release("v2", "/ok")}
+
+	err := e.installer(src).UpdateMany(ctx)
+	if err == nil || err.Error() != "1 of 4 updates failed" {
+		t.Fatalf("UpdateMany err = %v, want 1 of 4 failed", err)
+	}
+	if e.hits.Load() != 1 {
+		t.Errorf("update --all sent %d asset requests, want 1", e.hits.Load())
+	}
+	if tag("old") != "v2" || tag("held") != "v1" || tag("current") != "v1" {
+		t.Errorf("tags after update --all: old %s, held %s, current %s", tag("old"), tag("held"), tag("current"))
+	}
+
+	if err := e.installer(src).UpdateMany(ctx, "current", "old"); err != nil {
+		t.Errorf("update of current packages: %v", err)
+	}
+	if err := e.installer(src).UpdateMany(ctx, "current", "held"); err == nil {
+		t.Error("update of a pinned package by name succeeded")
+	}
+	if e.hits.Load() != 1 {
+		t.Errorf("updates of current packages downloaded, %d asset requests", e.hits.Load())
+	}
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := e.installer(src).UpdateMany(cancelled); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled UpdateMany err = %v", err)
+	}
+}

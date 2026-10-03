@@ -329,6 +329,56 @@ func (i *Installer) update(ctx context.Context, name, asset, bin string, require
 	return withRetry(i.install(ctx, opts), "grip update "+shellArg(name), opts)
 }
 
+// UpdateMany updates the named packages, or every installed one when names is
+// empty, skipping pinned ones then. Each update takes the lock itself. A
+// failure is logged and the run continues; cancellation stops it.
+func (i *Installer) UpdateMany(ctx context.Context, names ...string) error {
+	all := len(names) == 0
+	if all {
+		insts, err := i.storage.List()
+		if err != nil {
+			return err
+		}
+		for _, inst := range insts {
+			names = append(names, inst.Name)
+		}
+		slices.Sort(names)
+	}
+
+	var updated, current, pinned, failed int
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		before, err := i.storage.Get(name)
+		if err == nil && all && before.Pinned {
+			logger.Println("%s is pinned at %s, skipped", name, before.Tag)
+			pinned++
+			continue
+		}
+		if err == nil {
+			err = i.Update(ctx, name, "", "")
+		}
+		if err != nil {
+			logger.Error("%s: %v", name, err)
+			failed++
+			continue
+		}
+		if after, err := i.storage.Get(name); err == nil && after.Tag != before.Tag {
+			updated++
+		} else {
+			current++
+		}
+	}
+	if len(names) > 1 {
+		logger.Println("%d updated, %d current, %d pinned, %d failed", updated, current, pinned, failed)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d updates failed", failed, len(names))
+	}
+	return nil
+}
+
 // OutdatedPackage is an installed package whose tag differs from the latest
 // release.
 type OutdatedPackage struct {

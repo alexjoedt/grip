@@ -5,15 +5,19 @@ import (
 	"fmt"
 
 	grip "github.com/alexjoedt/grip/internal"
-	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/urfave/cli/v3"
 )
 
 func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, error), version string) {
 	cmd := &cli.Command{
-		Name:  "update",
-		Usage: "updates an executable",
+		Name:      "update",
+		Usage:     "updates executables to their latest release",
+		ArgsUsage: "[name...]",
 		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "all",
+				Usage: "updates every installed executable except pinned ones",
+			},
 			&cli.StringFlag{
 				Name:  "asset",
 				Usage: "release asset name or glob to install, replaces the remembered one",
@@ -24,34 +28,26 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
-			name := c.Args().First()
-			if name == "" {
-				return fmt.Errorf("please provide the name of the package to update")
+			names := c.Args().Slice()
+			all := c.Bool("all")
+			override := c.String("asset") != "" || c.String("bin") != ""
+			switch {
+			case all && len(names) > 0:
+				return fmt.Errorf("use either --all or package names")
+			case !all && len(names) == 0:
+				return fmt.Errorf("please provide the name of the package to update, or --all")
+			case override && len(names) != 1:
+				return fmt.Errorf("--asset and --bin need exactly one package name")
 			}
 
-			installer, storage, err := setup()
+			installer, _, err := setup()
 			if err != nil {
 				return err
 			}
-
-			inst, err := storage.Get(name)
-			if err != nil {
-				return fmt.Errorf("package not found: %s", name)
+			if len(names) == 1 {
+				return installer.Update(ctx, names[0], c.String("asset"), c.String("bin"))
 			}
-
-			oldTag := inst.Tag
-
-			if err := installer.Update(ctx, name, c.String("asset"), c.String("bin")); err != nil {
-				return err
-			}
-
-			// Get updated installation to show new version
-			updated, _ := storage.Get(name)
-			if updated != nil && updated.Tag != oldTag {
-				logger.Success("%s updated successfully from %s to %s", name, oldTag, updated.Tag)
-			}
-
-			return nil
+			return installer.UpdateMany(ctx, names...)
 		},
 	}
 
