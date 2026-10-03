@@ -3,7 +3,6 @@ module github.com/alexjoedt/grip
 go 1.25.0
 
 require (
-	github.com/google/go-github/v56 v56.0.0
 	github.com/k0kubun/go-ansi v0.0.0-20180517002512-3bf9e2903213
 	github.com/minio/selfupdate v0.6.0
 	github.com/schollz/progressbar/v3 v3.19.1
@@ -14,7 +13,6 @@ require (
 
 require (
 	aead.dev/minisign v0.2.0 // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
