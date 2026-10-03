@@ -1476,3 +1476,37 @@ func TestInstallAtTag(t *testing.T) {
 		t.Error("switch to another tag did not pin")
 	}
 }
+
+func TestOutdated(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	for _, inst := range []*Installation{
+		{Name: "current", Repo: "github.com/o/current", Version: Version{Tag: "v1"}},
+		{Name: "old", Repo: "github.com/o/old", Version: Version{Tag: "v1"}},
+		{Name: "held", Repo: "github.com/o/held", Version: Version{Tag: "v1"}, Pinned: true},
+	} {
+		if err := e.storage.Save(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := repoSource{"current": {Tag: "v1"}, "old": {Tag: "v0.9"}, "held": {Tag: "v2"}}
+	before := e.snapshot(t)
+
+	got, err := e.installer(src).Outdated(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []OutdatedPackage{{Name: "held", Tag: "v1", Latest: "v2", Pinned: true}, {Name: "old", Tag: "v1", Latest: "v0.9"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("Outdated = %+v, want %+v", got, want)
+	}
+
+	delete(src, "current")
+	got, err = e.installer(src).Outdated(ctx)
+	if err == nil || !slices.Equal(got, want) {
+		t.Errorf("Outdated with a failed lookup = %+v, %v; want %+v and an error", got, err, want)
+	}
+	if e.hits.Load() != 0 || !maps.Equal(before, e.snapshot(t)) {
+		t.Errorf("outdated sent %d asset requests or changed the home", e.hits.Load())
+	}
+}

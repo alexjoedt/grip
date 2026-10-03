@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -326,6 +327,48 @@ func (i *Installer) update(ctx context.Context, name, asset, bin string, require
 	}
 
 	return withRetry(i.install(ctx, opts), "grip update "+shellArg(name), opts)
+}
+
+// OutdatedPackage is an installed package whose tag differs from the latest
+// release.
+type OutdatedPackage struct {
+	Name, Tag, Latest string
+	Pinned            bool
+}
+
+// Outdated looks up the latest release of every installed package, sorted by
+// name. A failed lookup is logged and the rest are still checked. It takes no
+// lock and changes nothing.
+func (i *Installer) Outdated(ctx context.Context) ([]OutdatedPackage, error) {
+	insts, err := i.storage.List()
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(insts, func(a, b *Installation) int { return strings.Compare(a.Name, b.Name) })
+
+	var out []OutdatedPackage
+	failed := 0
+	for _, inst := range insts {
+		release, err := func() (*Release, error) {
+			repo, err := ParseRepo(inst.Repo)
+			if err != nil {
+				return nil, err
+			}
+			return fetchRelease(ctx, i.source, repo, "")
+		}()
+		if err != nil {
+			logger.Error("%s: %v", inst.Name, err)
+			failed++
+			continue
+		}
+		if release.Tag != inst.Tag {
+			out = append(out, OutdatedPackage{Name: inst.Name, Tag: inst.Tag, Latest: release.Tag, Pinned: inst.Pinned})
+		}
+	}
+	if failed > 0 {
+		return out, fmt.Errorf("%d of %d lookups failed", failed, len(insts))
+	}
+	return out, nil
 }
 
 // pinnedDigest returns the digest recorded for tag and asset in the current

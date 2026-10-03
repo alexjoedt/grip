@@ -62,3 +62,17 @@ func TestInstallRejectsMalformedRelease(t *testing.T) {
 		})
 	}
 }
+
+// repoSource serves the latest release per repository name; a missing name fails.
+type repoSource map[string]*Release
+
+func (s repoSource) LatestRelease(_ context.Context, r Repo) (*Release, error) {
+	if rel, ok := s[r.Name]; ok {
+		return rel, nil
+	}
+	return nil, errors.New("no such repo")
+}
+
+func (s repoSource) ReleaseByTag(ctx context.Context, r Repo, _ string) (*Release, error) {
+	return s.LatestRelease(ctx, r)
+}
