@@ -68,10 +68,14 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			}
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintf(tw, "NAME\tTAG\tREPO\tINSTALL PATH\n")
+			fmt.Fprintf(tw, "NAME\tTAG\tPINNED\tREPO\tINSTALL PATH\n")
 
 			for _, inst := range installations {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", inst.Name, inst.Tag, inst.Repo, storage.InstallDir(inst))
+				pinned := "no"
+				if inst.Pinned {
+					pinned = "yes"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", inst.Name, inst.Tag, pinned, inst.Repo, storage.InstallDir(inst))
 			}
 			return tw.Flush()
 		},

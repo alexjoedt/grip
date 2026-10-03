@@ -184,6 +184,43 @@ func (s *Storage) Save(inst *Installation) error {
 	return s.save(st)
 }
 
+// SetPinned sets or clears the pinned flag of the named packages under the
+// lock. An unknown name fails before anything changes.
+func (s *Storage) SetPinned(ctx context.Context, pinned bool, names ...string) error {
+	unlock, err := s.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	st, err := s.load()
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if _, ok := st.packages[name]; !ok {
+			return fmt.Errorf("package %w: %s", ErrNotFound, name)
+		}
+	}
+
+	verb := map[bool]string{true: "pinned", false: "unpinned"}[pinned]
+	changed := false
+	for _, name := range names {
+		inst := st.packages[name]
+		if inst.Pinned == pinned {
+			logger.Println("%s is already %s at %s", name, verb, inst.Tag)
+			continue
+		}
+		inst.Pinned = pinned
+		changed = true
+		logger.Println("%s %s at %s", name, verb, inst.Tag)
+	}
+	if !changed {
+		return nil
+	}
+	return s.save(st)
+}
+
 // Delete removes an installation by name
 func (s *Storage) Delete(name string) error {
 	st, err := s.load()

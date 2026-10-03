@@ -135,6 +135,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		default:
 			return fmt.Errorf("%s version %s is already installed", existing.Name, existing.Tag)
 		}
+		if existing.Pinned && opts.Tag == "" {
+			opts.Tag = existing.Tag
+		}
 	}
 	if other, err := i.storage.Get(installName); err == nil && existing == nil {
 		return fmt.Errorf("name %s is already used by %s, choose another with --alias", installName, other.Repo)
@@ -275,6 +278,9 @@ func (i *Installer) update(ctx context.Context, name, asset, bin string, require
 	inst, err := i.storage.Get(name)
 	if err != nil {
 		return fmt.Errorf("package not found: %s", name)
+	}
+	if inst.Pinned {
+		return fmt.Errorf("%s is pinned at %s, run grip unpin %s", name, inst.Tag, name)
 	}
 
 	repo, err := ParseRepo(inst.Repo)

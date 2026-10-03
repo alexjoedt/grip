@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
+	"github.com/alexjoedt/grip/cmd/pin"
 	"github.com/alexjoedt/grip/cmd/remove"
 	"github.com/alexjoedt/grip/cmd/update"
 	"github.com/alexjoedt/grip/cmd/verify"
@@ -59,6 +60,7 @@ func newApp() *cli.Command {
 	update.Command(app, setup, version)
 	list.Command(app, setup)
 	remove.Command(app, setup)
+	pin.Command(app, setup)
 	verify.Command(app, setup)
 	return app
 }

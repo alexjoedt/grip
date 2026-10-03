@@ -25,6 +25,7 @@ func (f fakeSource) ReleaseByTag(context.Context, Repo, string) (*Release, error
 type countingSource struct {
 	Source
 	calls atomic.Int64
+	tag   string // last tag passed to ReleaseByTag
 }
 
 func (c *countingSource) LatestRelease(ctx context.Context, r Repo) (*Release, error) {
@@ -34,6 +35,7 @@ func (c *countingSource) LatestRelease(ctx context.Context, r Repo) (*Release, e
 
 func (c *countingSource) ReleaseByTag(ctx context.Context, r Repo, tag string) (*Release, error) {
 	c.calls.Add(1)
+	c.tag = tag
 	return c.Source.ReleaseByTag(ctx, r, tag)
 }
 

@@ -1357,3 +1357,71 @@ func TestSelfUpdateDelegates(t *testing.T) {
 	}
 	e.assertInstalled(t, name, "v1.2.0")
 }
+
+func TestPin(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	pinned := func() bool {
+		t.Helper()
+		inst, err := e.storage.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inst.Pinned
+	}
+
+	e.hits.Store(0)
+	before := e.snapshot(t)
+	if err := e.storage.SetPinned(ctx, true, name, "unknown-zz"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pin with unknown name err = %v, want ErrNotFound", err)
+	}
+	if !maps.Equal(before, e.snapshot(t)) {
+		t.Error("failed pin changed the home")
+	}
+	for range 2 {
+		if err := e.storage.SetPinned(ctx, true, name); err != nil || !pinned() {
+			t.Fatalf("pin: %v, pinned %v", err, pinned())
+		}
+	}
+	state := filepath.Join(e.cfg.HomeDir, "grip.json")
+	after := e.snapshot(t)
+	delete(before, state)
+	delete(after, state)
+	if !maps.Equal(before, after) || e.hits.Load() != 0 {
+		t.Errorf("pin touched store or links, or sent %d requests", e.hits.Load())
+	}
+
+	src := &countingSource{Source: fakeSource{release: e.release("v1.1.0", "/ok")}}
+	err := e.installer(src).Update(ctx, name, "", "")
+	if err == nil || err.Error() != name+" is pinned at v1.0.0, run grip unpin "+name {
+		t.Fatalf("update of pinned package err = %v", err)
+	}
+	if src.calls.Load() != 0 {
+		t.Errorf("update of pinned package sent %d forge requests", src.calls.Load())
+	}
+
+	src = &countingSource{Source: fakeSource{release: e.release("v1.0.0", "/ok")}}
+	if err := e.installer(src).Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if src.tag != "v1.0.0" {
+		t.Errorf("install --force on pinned package fetched tag %q, want v1.0.0", src.tag)
+	}
+	if !pinned() {
+		t.Error("install --force dropped the pin")
+	}
+
+	for range 2 {
+		if err := e.storage.SetPinned(ctx, false, name); err != nil || pinned() {
+			t.Fatalf("unpin: %v, pinned %v", err, pinned())
+		}
+	}
+	if err := e.installer(fakeSource{release: e.release("v1.1.0", "/ok")}).Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+}
