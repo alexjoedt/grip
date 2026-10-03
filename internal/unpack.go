@@ -91,7 +91,13 @@ func Unpack(archivePath, destDir string, q binaryQuery) (string, error) {
 // bareBinary returns path when it is an executable for q's target.
 func bareBinary(path string, q binaryQuery) (string, error) {
 	if !executableFor(path, q.OS, q.Arch) {
-		return "", fmt.Errorf("%s is neither a supported archive nor an executable for %s/%s", filepath.Base(path), q.OS, q.Arch)
+		if !q.AnyArch || !executableFor(path, q.OS, "") {
+			return "", fmt.Errorf("%s is neither a supported archive nor an executable for %s/%s", filepath.Base(path), q.OS, q.Arch)
+		}
+		logger.Warn("%s is not built for %s/%s", filepath.Base(path), q.OS, q.Arch)
+	}
+	if q.Override != "" {
+		logger.Warn("bin override %q ignored, the asset is a single executable", q.Override)
 	}
 	return path, nil
 }
@@ -123,27 +129,34 @@ type binaryQuery struct {
 	OS, Arch string
 	Override string   // bin override; must name a candidate
 	Names    []string // install name first, then repository name
+	AnyArch  bool     // without a q.Arch executable, take others with a warning
 }
 
 // findBinary returns the executable in dir selected by q. Candidates are
 // regular ELF (Mach-O on darwin) executables for q.OS and q.Arch.
 func findBinary(dir string, q binaryQuery) (string, error) {
-	var cands []string
+	var cands, foreign []string
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
-		if d.Type().IsRegular() && executableFor(path, q.OS, q.Arch) {
-			rel, err := filepath.Rel(dir, path)
-			if err != nil {
-				return err
-			}
+		if executableFor(path, q.OS, q.Arch) {
 			cands = append(cands, rel)
+		} else if q.AnyArch && executableFor(path, q.OS, "") {
+			foreign = append(foreign, rel)
 		}
 		return nil
 	})
 	if err != nil {
 		return "", err
+	}
+	if len(cands) == 0 && len(foreign) > 0 {
+		logger.Warn("no executable for %s/%s in the archive, using other architectures: %s", q.OS, q.Arch, strings.Join(foreign, ", "))
+		cands = foreign
 	}
 	logger.Info("binary candidates for %s/%s: %s", q.OS, q.Arch, strings.Join(cands, ", "))
 
@@ -164,13 +177,16 @@ func selectBinary(cands []string, override string, names ...string) (string, err
 	if len(cands) == 0 {
 		return "", errors.New("no executable found in archive")
 	}
-	list := strings.Join(cands, ", ")
+	bases := make([]string, len(cands))
+	for i, c := range cands {
+		bases[i] = filepath.Base(c)
+	}
 	if override != "" {
 		if c := byBaseName(cands, override); len(c) == 1 {
 			logger.Info("binary %s: matches bin override", c[0])
 			return c[0], nil
 		}
-		return "", fmt.Errorf("bin override %q names no single executable in archive: %s", override, list)
+		return "", &choiceError{fmt.Errorf("bin override %q names no single executable in archive", override), "--bin", bases}
 	}
 	if len(cands) == 1 {
 		logger.Info("binary %s: only candidate", cands[0])
@@ -182,7 +198,7 @@ func selectBinary(cands []string, override string, names ...string) (string, err
 			return c[0], nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s", ErrAmbiguousBinary, list)
+	return "", &choiceError{ErrAmbiguousBinary, "--bin", bases}
 }
 
 func byBaseName(cands []string, name string) []string {
@@ -208,7 +224,8 @@ var machoCPUs = map[string]macho.Cpu{
 }
 
 // executableFor reports whether path is an executable for goos and goarch:
-// Mach-O (thin or universal) on darwin, ELF elsewhere. Unparsable files are not.
+// Mach-O (thin or universal) on darwin, ELF elsewhere. Unparsable files are
+// not. An empty goarch accepts any architecture.
 func executableFor(path, goos, goarch string) bool {
 	if goos == "darwin" {
 		if f, err := macho.Open(path); err == nil {
@@ -234,12 +251,12 @@ func executableFor(path, goos, goarch string) bool {
 	}
 	defer f.Close()
 	m, ok := elfMachines[goarch]
-	return ok && f.Machine == m && (f.Type == elf.ET_EXEC || f.Type == elf.ET_DYN)
+	return (goarch == "" || ok && f.Machine == m) && (f.Type == elf.ET_EXEC || f.Type == elf.ET_DYN)
 }
 
 func machoFor(h macho.FileHeader, goarch string) bool {
 	cpu, ok := machoCPUs[goarch]
-	return ok && h.Cpu == cpu && h.Type == macho.TypeExec
+	return (goarch == "" || ok && h.Cpu == cpu) && h.Type == macho.TypeExec
 }
 
 // fileMode maps an archive mode to 0755 when any exec bit is set, else 0644,

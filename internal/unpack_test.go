@@ -625,5 +625,11 @@ func TestFindBinary(t *testing.T) {
 
 	_, err = findBinary(dir, binaryQuery{OS: "linux", Arch: "amd64", Names: []string{"x"}})
 	require.ErrorIs(t, err, ErrAmbiguousBinary)
-	assert.ErrorContains(t, err, "pkg/age, pkg/age-keygen")
+	assert.ErrorContains(t, err, "age, age-keygen")
+
+	_, err = findBinary(dir, binaryQuery{OS: "linux", Arch: "386", Names: []string{"age"}})
+	require.ErrorContains(t, err, "no executable found")
+	got, err = findBinary(dir, binaryQuery{OS: "linux", Arch: "386", Names: []string{"age"}, AnyArch: true})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "pkg/age"), got)
 }

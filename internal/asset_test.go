@@ -190,8 +190,55 @@ func TestParseAssetKeepsPublishedCase(t *testing.T) {
 	cfg := &Config{OS: "linux", Arch: "amd64"}
 	assets := []ReleaseAsset{{Name: "Tool_Linux_x86_64.tar.gz", URL: "https://example.com/Tool_Linux_x86_64.tar.gz"}}
 
-	asset, err := parseAsset(assets, cfg, "owner", "tool")
+	asset, err := parseAsset(assets, cfg, "owner", "tool", "")
 	require.NoError(t, err)
 	assert.Equal(t, "Tool_Linux_x86_64.tar.gz", asset.Name)
 	assert.Equal(t, "https://example.com/Tool_Linux_x86_64.tar.gz", asset.DownloadURL)
+}
+
+func TestParseAssetPattern(t *testing.T) {
+	cfg := &Config{OS: "linux", Arch: "amd64"}
+	var assets []ReleaseAsset
+	for _, n := range []string{"tool_linux_amd64.tar.gz", "tool_linux_amd64_musl.tar.gz", "tool_linux_arm64.tar.gz", "tool.deb", "checksums.txt"} {
+		assets = append(assets, ReleaseAsset{Name: n, URL: "https://example.com/" + n})
+	}
+
+	tests := []struct {
+		pattern, want, wantErr string
+		anyArch                bool
+	}{
+		{pattern: "tool_linux_arm64.tar.gz", want: "tool_linux_arm64.tar.gz", anyArch: true},
+		{pattern: "*.deb", want: "tool.deb", anyArch: true},
+		{pattern: "tool_linux_*", want: "tool_linux_amd64_musl.tar.gz"},
+		{pattern: "*.zip", wantErr: `asset override "*.zip" matches no release asset: tool_linux_amd64.tar.gz, `},
+		{pattern: "[", wantErr: "syntax error in pattern"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			got, err := parseAsset(assets, cfg, "owner", "tool", tt.pattern)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.Name)
+			assert.Equal(t, tt.anyArch, got.AnyArch)
+		})
+	}
+}
+
+func TestVersionGlob(t *testing.T) {
+	tests := []struct{ name, tag, want string }{
+		{"tool_1.2.3_linux_amd64.tar.gz", "v1.2.3", "tool_*_linux_amd64.tar.gz"},
+		{"tool-v1.2.3-linux.tar.gz", "v1.2.3", "tool-*-linux.tar.gz"},
+		{"kustomize_v5.8.2_linux_amd64.tar.gz", "kustomize/v5.8.2", "kustomize_*_linux_amd64.tar.gz"},
+		{"jq-1.8.2-linux-amd64", "jq-1.8.2", "*-linux-amd64"},
+		{"jq_1.8.2_linux_amd64.tar.gz", "jq-1.8.2", "jq_*_linux_amd64.tar.gz"},
+		{"jq-linux-amd64", "jq-1.8.2", "jq-linux-amd64"},
+		{"uv-x86_64-unknown-linux-gnu.tar.gz", "0.9.1", "uv-x86_64-unknown-linux-gnu.tar.gz"},
+		{"tool_linux.tar.gz", "nightly", "tool_linux.tar.gz"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, versionGlob(tt.name, tt.tag), tt.name)
+	}
 }

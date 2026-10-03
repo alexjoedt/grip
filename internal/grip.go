@@ -61,7 +61,7 @@ func SelfUpdate(ctx context.Context, version string, installer *Installer) error
 	}
 
 	// Parse asset for current platform
-	asset, err := parseAsset(release.Assets, installer.config, owner, name)
+	asset, err := parseAsset(release.Assets, installer.config, owner, name, "")
 	if err != nil {
 		return err
 	}

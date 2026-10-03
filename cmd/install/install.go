@@ -27,6 +27,14 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				Aliases: []string{"a"},
 				Usage:   "alias for the executable",
 			},
+			&cli.StringFlag{
+				Name:  "asset",
+				Usage: "release asset name or glob to install, remembered for updates",
+			},
+			&cli.StringFlag{
+				Name:  "bin",
+				Usage: "name of the executable inside the archive, remembered for updates",
+			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			installer, _, err := setup()
@@ -38,6 +46,8 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				Tag:   c.String("tag"),
 				Force: c.Bool("force"),
 				Alias: c.String("alias"),
+				Asset: c.String("asset"),
+				Bin:   c.String("bin"),
 			}
 
 			return installer.Install(ctx, opts)

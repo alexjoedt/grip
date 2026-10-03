@@ -13,6 +13,16 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 	cmd := &cli.Command{
 		Name:  "update",
 		Usage: "updates an executable",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "asset",
+				Usage: "release asset name or glob to install, replaces the remembered one",
+			},
+			&cli.StringFlag{
+				Name:  "bin",
+				Usage: "name of the executable inside the archive, replaces the remembered one",
+			},
+		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			name := c.Args().First()
 			if name == "" {
@@ -31,7 +41,7 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 
 			oldTag := inst.Tag
 
-			if err := installer.Update(ctx, name); err != nil {
+			if err := installer.Update(ctx, name, c.String("asset"), c.String("bin")); err != nil {
 				return err
 			}
 

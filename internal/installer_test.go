@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"debug/macho"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -239,7 +241,7 @@ func TestInstallAlias(t *testing.T) {
 	}
 
 	inst = e.installer(fakeSource{release: e.release("v1.1.0", "/ok")})
-	if err := inst.Update(context.Background(), "gfz-alias"); err != nil {
+	if err := inst.Update(context.Background(), "gfz-alias", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	e.assertInstalled(t, "gfz-alias", "v1.1.0")
@@ -256,12 +258,12 @@ func TestUpdate(t *testing.T) {
 	}
 
 	inst := e.installer(fakeSource{release: e.release("v1.1.0", "/ok")})
-	if err := inst.Update(ctx, "grip-fixture-zz"); err != nil {
+	if err := inst.Update(ctx, "grip-fixture-zz", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	e.assertInstalled(t, "grip-fixture-zz", "v1.1.0")
 
-	if err := inst.Update(ctx, "unknown-zz"); err == nil {
+	if err := inst.Update(ctx, "unknown-zz", "", ""); err == nil {
 		t.Error("update of unknown package succeeded")
 	}
 }
@@ -347,7 +349,7 @@ func TestUpdateConvertsV1Install(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Update(context.Background(), name); err != nil {
+			if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Update(context.Background(), name, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			e.assertInstalled(t, name, "v1.0.0")
@@ -455,7 +457,7 @@ func TestUpdateFaultKeepsPrevious(t *testing.T) {
 				assertPrevious()
 				return errFault
 			}
-			if err := inst.Update(context.Background(), name); !errors.Is(err, errFault) {
+			if err := inst.Update(context.Background(), name, "", ""); !errors.Is(err, errFault) {
 				t.Fatalf("Update err = %v, want injected fault", err)
 			}
 			if !hit {
@@ -490,7 +492,7 @@ func TestUpdateFaultAfterSwitch(t *testing.T) {
 		}
 		return nil
 	}
-	if err := inst.Update(ctx, name); !errors.Is(err, errFault) {
+	if err := inst.Update(ctx, name, "", ""); !errors.Is(err, errFault) {
 		t.Fatalf("Update err = %v, want injected fault", err)
 	}
 	if got, err := e.storage.Get(name); err != nil || got.Tag != "v1.0.0" {
@@ -498,7 +500,7 @@ func TestUpdateFaultAfterSwitch(t *testing.T) {
 	}
 
 	inst.faultHook = nil
-	if err := inst.Update(ctx, name); err != nil {
+	if err := inst.Update(ctx, name, "", ""); err != nil {
 		t.Fatalf("repairing update: %v", err)
 	}
 	e.assertInstalled(t, name, "v1.1.0")
@@ -704,4 +706,156 @@ func TestLockWaitsAndHonorsContext(t *testing.T) {
 	if err := <-acquired; err != nil {
 		t.Fatalf("Lock after release: %v", err)
 	}
+}
+
+// releaseOf returns a release with one asset per name, served from e.files
+// when present, else the default fixture archive.
+func (e *installerEnv) releaseOf(tag string, names ...string) *Release {
+	rel := &Release{Tag: tag}
+	for _, n := range names {
+		rel.Assets = append(rel.Assets, ReleaseAsset{Name: n, URL: e.srv.URL + "/" + n})
+	}
+	return rel
+}
+
+// tarGzOf builds a tar.gz holding one executable entry per name.
+func tarGzOf(t *testing.T, bins map[string][]byte) []byte {
+	t.Helper()
+	var entries []tarEntry
+	for name, content := range bins {
+		entries = append(entries, tarEntry{name: name, content: content, mode: 0o755})
+	}
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := io.Copy(gw, newTarStream(t, entries)); err != nil || gw.Close() != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestAssetOverrideRemembered(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	names := func(v string) []string {
+		return []string{"tool_" + v + "_darwin_amd64.tar.gz", "tool_" + v + "_darwin_amd64_extra.tar.gz"}
+	}
+	assertEntry := func(asset, override string) {
+		t.Helper()
+		inst, err := e.storage.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inst.Asset != asset || inst.AssetOverride != override {
+			t.Errorf("asset, override = %q, %q; want %q, %q", inst.Asset, inst.AssetOverride, asset, override)
+		}
+	}
+
+	err := e.installer(fakeSource{release: e.releaseOf("v1.0.0", names("1.0.0")...)}).
+		Install(ctx, InstallOptions{Repo: fixtureRepo, Asset: "tool_1.0.0_darwin_amd64_extra.tar.gz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEntry("tool_1.0.0_darwin_amd64_extra.tar.gz", "tool_*_darwin_amd64_extra.tar.gz")
+
+	if err := e.installer(fakeSource{release: e.releaseOf("v1.1.0", names("1.1.0")...)}).Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+	assertEntry("tool_1.1.0_darwin_amd64_extra.tar.gz", "tool_*_darwin_amd64_extra.tar.gz")
+
+	if err := e.installer(fakeSource{release: e.releaseOf("v1.2.0", names("1.2.0")...)}).Update(ctx, name, "*_amd64.tar.gz", ""); err != nil {
+		t.Fatal(err)
+	}
+	assertEntry("tool_1.2.0_darwin_amd64.tar.gz", "*_amd64.tar.gz")
+
+	err = e.installer(fakeSource{release: e.releaseOf("v1.3.0", "tool_1.3.0_darwin_x86_64.tar.gz", "tool_1.3.0_darwin_arm64.tar.gz")}).Update(ctx, name, "", "")
+	for _, want := range []string{`asset override "*_amd64.tar.gz" matches no release asset`, "grip update " + name + " --asset tool_1.3.0_darwin_x86_64.tar.gz"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("update with stale override err = %v, want %q", err, want)
+		}
+	}
+	e.assertInstalled(t, name, "v1.2.0")
+}
+
+func TestBinOverrideRemembered(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	e.files["/tool_darwin_amd64.tar.gz"] = tarGzOf(t, map[string][]byte{"a": machOBinary(), "b": machOBinary()})
+	rel := e.releaseOf("v1.0.0", "tool_darwin_amd64.tar.gz")
+
+	err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Alias: name})
+	if !errors.Is(err, ErrAmbiguousBinary) {
+		t.Fatalf("err = %v, want ErrAmbiguousBinary", err)
+	}
+	for _, want := range []string{"grip install " + fixtureRepo + " --alias " + name + " --bin a", "--bin b"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+	}
+
+	if err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Bin: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if inst, err := e.storage.Get(name); err != nil || inst.BinOverride != "b" {
+		t.Fatalf("binOverride = %+v, %v; want b", inst, err)
+	}
+
+	rel = e.releaseOf("v1.1.0", "tool_darwin_amd64.tar.gz")
+	if err := e.installer(fakeSource{release: rel}).Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+
+	e.files["/tool_darwin_amd64.tar.gz"] = tarGzOf(t, map[string][]byte{"a": machOBinary(), "c": machOBinary()})
+	rel = e.releaseOf("v1.2.0", "tool_darwin_amd64.tar.gz")
+	err = e.installer(fakeSource{release: rel}).Update(ctx, name, "", "")
+	for _, want := range []string{`bin override "b" names no single executable`, "grip update " + name + " --bin c"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("update with stale bin err = %v, want %q", err, want)
+		}
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+
+	if err := e.installer(fakeSource{release: rel}).Update(ctx, name, "", "c"); err != nil {
+		t.Fatal(err)
+	}
+	if inst, err := e.storage.Get(name); err != nil || inst.BinOverride != "c" || inst.Tag != "v1.2.0" {
+		t.Fatalf("after update --bin c: %+v, %v", inst, err)
+	}
+}
+
+func TestExplicitAssetAllowsForeignArch(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const asset = "tool_darwin_amd64.tar.gz" // holds an arm64 binary
+	e.files["/"+asset] = tarGzOf(t, map[string][]byte{"grip-fixture-zz": machOFor(macho.CpuArm64, macho.TypeExec)})
+	rel := e.releaseOf("v1.0.0", asset)
+
+	if err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err == nil {
+		t.Fatal("arm64 binary installed on amd64 without --asset")
+	}
+	if err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Asset: asset}); err != nil {
+		t.Fatal(err)
+	}
+	e.assertInstalled(t, "grip-fixture-zz", "v1.0.0")
+}
+
+func TestAmbiguousAssetRetryCommands(t *testing.T) {
+	e := newInstallerEnv(t)
+	rel := e.releaseOf("v1.0.0", "a_darwin_amd64.tar.gz", "b_darwin_amd64.tar.gz")
+	err := e.installer(fakeSource{release: rel}).Install(context.Background(), InstallOptions{Repo: fixtureRepo, Tag: "v1.0.0", Bin: "x y"})
+	if !errors.Is(err, ErrAmbiguousAsset) {
+		t.Fatalf("err = %v, want ErrAmbiguousAsset", err)
+	}
+	for _, want := range []string{
+		"\n  grip install " + fixtureRepo + " --tag v1.0.0 --bin 'x y' --asset a_darwin_amd64.tar.gz",
+		"\n  grip install " + fixtureRepo + " --tag v1.0.0 --bin 'x y' --asset b_darwin_amd64.tar.gz",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+	}
+	e.assertEmptyState(t)
 }

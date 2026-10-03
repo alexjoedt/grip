@@ -1,6 +1,7 @@
 package grip
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/alexjoedt/grip/internal/logger"
@@ -40,6 +42,8 @@ type InstallOptions struct {
 	Tag   string
 	Force bool
 	Alias string
+	Asset string // asset name or path.Match pattern, remembered for updates
+	Bin   string // base name of the executable in the archive, remembered
 }
 
 // Install installs a package from GitHub
@@ -49,7 +53,47 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 	defer unlock()
-	return i.install(ctx, opts)
+
+	cmd := "grip install " + shellArg(opts.Repo)
+	if opts.Tag != "" {
+		cmd += " --tag " + shellArg(opts.Tag)
+	}
+	if opts.Alias != "" {
+		cmd += " --alias " + shellArg(opts.Alias)
+	}
+	if opts.Force {
+		cmd += " --force"
+	}
+	return withRetry(i.install(ctx, opts), cmd, opts)
+}
+
+// withRetry turns a choiceError into one paste-ready command per candidate.
+func withRetry(err error, cmd string, opts InstallOptions) error {
+	var ce *choiceError
+	if !errors.As(err, &ce) {
+		return err
+	}
+	if ce.flag != "--asset" && opts.Asset != "" {
+		cmd += " --asset " + shellArg(opts.Asset)
+	}
+	if ce.flag != "--bin" && opts.Bin != "" {
+		cmd += " --bin " + shellArg(opts.Bin)
+	}
+	var b strings.Builder
+	for _, c := range ce.cands {
+		fmt.Fprintf(&b, "\n  %s %s %s", cmd, ce.flag, shellArg(c))
+	}
+	return fmt.Errorf("%w, choose one:%s", ce.err, b.String())
+}
+
+var plainArg = regexp.MustCompile(`^[A-Za-z0-9._+/:=@-]+$`)
+
+// shellArg single-quotes s unless it is safe unquoted in a POSIX shell.
+func shellArg(s string) string {
+	if plainArg.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
@@ -104,16 +148,23 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 
+	assetOverride, binOverride := opts.Asset, opts.Bin
+	if existing != nil {
+		assetOverride = cmp.Or(assetOverride, existing.AssetOverride)
+		binOverride = cmp.Or(binOverride, existing.BinOverride)
+	}
+
 	// Parse asset for current platform
-	asset, err := parseAsset(release.Assets, i.config, owner, name)
+	asset, err := parseAsset(release.Assets, i.config, owner, name, assetOverride)
 	if err != nil {
 		return err
 	}
 
 	asset.Tag = release.Tag
 	asset.Alias = opts.Alias
-	if existing != nil {
-		asset.BinOverride = existing.BinOverride
+	asset.BinOverride = binOverride
+	if opts.Asset == asset.Name {
+		assetOverride = versionGlob(asset.Name, release.Tag)
 	}
 
 	sha256Hash, err := i.installAsset(ctx, asset, filepath.Join(i.pkgDir(installName), dir), installName)
@@ -133,9 +184,11 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 			SHA256:      sha256Hash,
 			InstalledAt: time.Now(),
 		},
+		AssetOverride: assetOverride,
+		BinOverride:   binOverride,
 	}
 	if existing != nil {
-		inst.Pinned, inst.AssetOverride, inst.BinOverride = existing.Pinned, existing.AssetOverride, existing.BinOverride
+		inst.Pinned = existing.Pinned
 		inst.Previous = existing.Previous
 		if existing.Tag != inst.Tag {
 			prev := existing.Version
@@ -190,8 +243,9 @@ func tagOrLatest(tag string) string {
 	return tag
 }
 
-// Update updates an installed package
-func (i *Installer) Update(ctx context.Context, name string) error {
+// Update updates an installed package. A non-empty asset or bin replaces the
+// stored override.
+func (i *Installer) Update(ctx context.Context, name, asset, bin string) error {
 	unlock, err := i.storage.Lock(ctx)
 	if err != nil {
 		return err
@@ -203,12 +257,12 @@ func (i *Installer) Update(ctx context.Context, name string) error {
 		return fmt.Errorf("package not found: %s", name)
 	}
 
-	opts := InstallOptions{Repo: inst.Repo, Force: true}
+	opts := InstallOptions{Repo: inst.Repo, Force: true, Asset: asset, Bin: bin}
 	if repo, err := ParseRepo(inst.Repo); err == nil && repo.Name != name {
 		opts.Alias = name
 	}
 
-	return i.install(ctx, opts)
+	return withRetry(i.install(ctx, opts), "grip update "+shellArg(name), opts)
 }
 
 // downloadAndUnpack downloads an asset archive and unpacks it.
@@ -240,6 +294,7 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 		Arch:     asset.Arch,
 		Override: asset.BinOverride,
 		Names:    []string{asset.BinaryName(), asset.RepoName},
+		AnyArch:  asset.AnyArch,
 	})
 	if err != nil {
 		cleanup()

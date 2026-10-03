@@ -2,8 +2,10 @@ package grip
 
 import (
 	"fmt"
+	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/alexjoedt/grip/internal/logger"
 )
@@ -19,6 +21,34 @@ type Asset struct {
 	RepoName    string
 	RepoOwner   string
 	BinOverride string
+	AnyArch     bool // explicitly chosen; a binary for another arch only warns
+}
+
+// choiceError reports candidates that the flag chooses between.
+type choiceError struct {
+	err   error
+	flag  string
+	cands []string
+}
+
+func (e *choiceError) Error() string { return e.err.Error() + ": " + strings.Join(e.cands, ", ") }
+func (e *choiceError) Unwrap() error { return e.err }
+
+// versionGlob replaces the release version in an asset name with '*'. It
+// tries the full tag, the part after the last '/', that without a leading
+// 'v', and that from its first digit; a name without any is kept.
+func versionGlob(name, tag string) string {
+	v := tag[strings.LastIndex(tag, "/")+1:]
+	tries := []string{tag, v, strings.TrimPrefix(v, "v")}
+	if i := strings.IndexFunc(v, unicode.IsDigit); i >= 0 {
+		tries = append(tries, v[i:])
+	}
+	for _, s := range tries {
+		if s != "" && strings.Contains(name, s) {
+			return strings.Replace(name, s, "*", 1)
+		}
+	}
+	return name
 }
 
 // BinaryName returns the name for the installed binary
@@ -40,8 +70,42 @@ func (a *Asset) BinaryName() string {
 	return name
 }
 
-// parseAsset selects the appropriate asset for the platform
-func parseAsset(assets []ReleaseAsset, cfg *Config, repoOwner, repoName string) (*Asset, error) {
+// parseAsset selects the asset for the platform. A non-empty pattern limits
+// the assets to the names it matches; a single match is taken as is.
+func parseAsset(assets []ReleaseAsset, cfg *Config, repoOwner, repoName, pattern string) (*Asset, error) {
+	if pattern != "" {
+		var matched []ReleaseAsset
+		for _, a := range assets {
+			ok, err := path.Match(pattern, a.Name)
+			if err != nil {
+				return nil, fmt.Errorf("asset pattern %q: %w", pattern, err)
+			}
+			if ok {
+				matched = append(matched, a)
+			}
+		}
+		switch len(matched) {
+		case 0:
+			names := make([]string, len(assets))
+			for i, a := range assets {
+				names[i] = a.Name
+			}
+			return nil, &choiceError{fmt.Errorf("asset override %q matches no release asset", pattern), "--asset", names}
+		case 1:
+			logger.Println("Selected asset %s (matches %s)", matched[0].Name, pattern)
+			return &Asset{
+				Name:        matched[0].Name,
+				OS:          cfg.OS,
+				Arch:        cfg.Arch,
+				DownloadURL: matched[0].URL,
+				RepoOwner:   repoOwner,
+				RepoName:    repoName,
+				AnyArch:     true,
+			}, nil
+		}
+		assets = matched
+	}
+
 	chosen, cands, err := selectAsset(assets, cfg.OS, cfg.Arch)
 	for _, c := range cands {
 		if c.stage == "" {
@@ -206,7 +270,7 @@ func selectAsset(assets []ReleaseAsset, goos, goarch string) (ReleaseAsset, []ca
 	for i, s := range live {
 		names[i] = s.asset.Name
 	}
-	return ReleaseAsset{}, cands, fmt.Errorf("%w for %s/%s: %s", ErrAmbiguousAsset, goos, goarch, strings.Join(names, ", "))
+	return ReleaseAsset{}, cands, &choiceError{fmt.Errorf("%w for %s/%s", ErrAmbiguousAsset, goos, goarch), "--asset", names}
 }
 
 // classify applies the hard filters; a non-empty stage means a is out.
