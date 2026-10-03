@@ -123,6 +123,15 @@ func TestInstallAlias(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.cfg.BinDir, "grip-fixture-zz")); !os.IsNotExist(err) {
 		t.Errorf("binary under repo name exists: %v", err)
 	}
+
+	inst = e.installer(fakeSource{release: e.release("v1.1.0", "/ok")})
+	if err := inst.Update(context.Background(), "gfz-alias"); err != nil {
+		t.Fatal(err)
+	}
+	e.assertInstalled(t, "gfz-alias", "v1.1.0")
+	if _, err := e.storage.Get("grip-fixture-zz"); err == nil {
+		t.Error("update of alias created an entry under the repo name")
+	}
 }
 
 func TestUpdate(t *testing.T) {

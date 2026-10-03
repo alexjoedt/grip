@@ -1,76 +1,97 @@
 package grip
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 )
 
-// Installation represents an installed package
+const stateVersion = 2
+
+// Version records one installed release of a package.
+type Version struct {
+	Tag          string    `json:"tag"`
+	Asset        string    `json:"asset"`
+	AssetDigest  string    `json:"assetDigest"`
+	DigestSource string    `json:"digestSource"`
+	SHA256       string    `json:"sha256"`
+	InstalledAt  time.Time `json:"installedAt"`
+}
+
+// Installation represents an installed package. Name is the state key.
 type Installation struct {
-	Name        string    `json:"name"`
-	Alias       string    `json:"alias,omitempty"`
+	Name string `json:"-"`
+	Repo string `json:"repo"`
+	Version
+	Previous      *Version `json:"previous,omitempty"`
+	Pinned        bool     `json:"pinned"`
+	AssetOverride string   `json:"assetOverride"`
+	BinOverride   string   `json:"binOverride"`
+	// InstallPath is set only on entries migrated from v1, whose binaries
+	// may live outside grip's bin directory.
+	InstallPath string `json:"installPath,omitempty"`
+}
+
+type stateFile struct {
+	Version  int                      `json:"version"`
+	Packages map[string]*Installation `json:"packages"`
+}
+
+// v1Installation is an entry of the unversioned v1 grip.json.
+type v1Installation struct {
 	Repo        string    `json:"repo"`
 	Tag         string    `json:"tag"`
-	SHA256      string    `json:"sha256,omitempty"`
+	SHA256      string    `json:"sha256"`
 	InstalledAt time.Time `json:"installedAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	InstallPath string    `json:"installPath"`
 }
 
-// repoEntry is used for migrating from the old lock file format
-type repoEntry struct {
-	Name        string
-	Tag         string
-	Repo        string
-	InstallPath string
+// state is the in-memory state; v1 holds the raw v1 file until it is backed up.
+type state struct {
+	packages map[string]*Installation
+	v1       []byte
 }
 
 // Storage manages installed packages
 type Storage struct {
 	filepath string
+	binDir   string
 }
 
-// NewStorage creates a new storage instance with migration from old lock file
-func NewStorage(filepath string, cfg *Config) (*Storage, error) {
-	s := &Storage{filepath: filepath}
-
-	// Check if new storage exists
-	if _, err := os.Stat(filepath); os.IsNotExist(err) {
-		// Try to migrate from old lock file
-		oldLockPath := cfg.HomeDir + "/grip.lock"
-		if _, err := os.Stat(oldLockPath); err == nil {
-			if err := s.migrateFromLockFile(oldLockPath); err != nil {
-				// If migration fails, just create empty storage
-				if err := s.save(make(map[string]*Installation)); err != nil {
-					return nil, fmt.Errorf("initialize storage: %w", err)
-				}
-			}
-		} else {
-			// No old file, create empty
-			if err := s.save(make(map[string]*Installation)); err != nil {
-				return nil, fmt.Errorf("initialize storage: %w", err)
-			}
+// NewStorage opens the state file. A missing file is empty state; it is
+// created by the first save.
+func NewStorage(path string, cfg *Config) (*Storage, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(cfg.HomeDir, "grip.lock")); err == nil {
+			return nil, errors.New("found legacy grip.lock: run grip v1.1+ once to migrate")
 		}
 	}
+	return &Storage{filepath: path, binDir: cfg.BinDir}, nil
+}
 
-	return s, nil
+// InstallDir returns the directory holding the binary of inst.
+func (s *Storage) InstallDir(inst *Installation) string {
+	if inst.InstallPath != "" {
+		return inst.InstallPath
+	}
+	return s.binDir
 }
 
 // Get retrieves installation by name
 func (s *Storage) Get(name string) (*Installation, error) {
-	data, err := s.load()
+	st, err := s.load()
 	if err != nil {
 		return nil, err
 	}
 
-	inst, ok := data[name]
+	inst, ok := st.packages[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
@@ -79,14 +100,13 @@ func (s *Storage) Get(name string) (*Installation, error) {
 }
 
 // GetByRepo retrieves installation by repository identity.
-// Stored entries are normalized on comparison, so v1 URL spellings match.
 func (s *Storage) GetByRepo(repo Repo) (*Installation, error) {
-	data, err := s.load()
+	st, err := s.load()
 	if err != nil {
 		return nil, err
 	}
 
-	for _, inst := range data {
+	for _, inst := range st.packages {
 		if r, err := ParseRepo(inst.Repo); err == nil && r == repo {
 			return inst, nil
 		}
@@ -97,13 +117,13 @@ func (s *Storage) GetByRepo(repo Repo) (*Installation, error) {
 
 // List returns all installations
 func (s *Storage) List() ([]*Installation, error) {
-	data, err := s.load()
+	st, err := s.load()
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*Installation, 0, len(data))
-	for _, inst := range data {
+	result := make([]*Installation, 0, len(st.packages))
+	for _, inst := range st.packages {
 		result = append(result, inst)
 	}
 
@@ -112,50 +132,108 @@ func (s *Storage) List() ([]*Installation, error) {
 
 // Save stores or updates an installation
 func (s *Storage) Save(inst *Installation) error {
-	data, err := s.load()
+	st, err := s.load()
 	if err != nil {
 		return err
 	}
 
-	data[inst.Name] = inst
-	return s.save(data)
+	st.packages[inst.Name] = inst
+	return s.save(st)
 }
 
 // Delete removes an installation by name
 func (s *Storage) Delete(name string) error {
-	data, err := s.load()
+	st, err := s.load()
 	if err != nil {
 		return err
 	}
 
-	if _, ok := data[name]; !ok {
+	if _, ok := st.packages[name]; !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
-	delete(data, name)
-	return s.save(data)
+	delete(st.packages, name)
+	return s.save(st)
 }
 
-// load reads storage from disk
-func (s *Storage) load() (map[string]*Installation, error) {
-	f, err := os.Open(s.filepath)
+// load reads the state file, converting a v1 file in memory.
+func (s *Storage) load() (*state, error) {
+	raw, err := os.ReadFile(s.filepath)
+	if errors.Is(err, os.ErrNotExist) {
+		return &state{packages: map[string]*Installation{}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
-	var data map[string]*Installation
-	if err := json.NewDecoder(f).Decode(&data); err != nil {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", s.filepath, err)
+	}
+
+	// A v1 package named "version" holds an object, never a number.
+	var version int
+	if v, ok := top["version"]; !ok || json.Unmarshal(v, &version) != nil {
+		packages, err := convertV1(raw)
+		if err != nil {
+			return nil, fmt.Errorf("decode v1 %s: %w", s.filepath, err)
+		}
+		return &state{packages: packages, v1: raw}, nil
+	}
+
+	if version != stateVersion {
+		return nil, fmt.Errorf("%s has unsupported state version %d, this grip supports %d", s.filepath, version, stateVersion)
+	}
+
+	var sf stateFile
+	if err := json.Unmarshal(raw, &sf); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", s.filepath, err)
+	}
+	if sf.Packages == nil {
+		sf.Packages = map[string]*Installation{}
+	}
+	for name, inst := range sf.Packages {
+		inst.Name = name
+	}
+	return &state{packages: sf.Packages}, nil
+}
+
+func convertV1(raw []byte) (map[string]*Installation, error) {
+	var v1 map[string]*v1Installation
+	if err := json.Unmarshal(raw, &v1); err != nil {
 		return nil, err
 	}
 
-	return data, nil
+	packages := make(map[string]*Installation, len(v1))
+	for name, e := range v1 {
+		repo := e.Repo
+		if r, err := ParseRepo(repo); err == nil {
+			repo = r.String()
+		}
+		installedAt := e.UpdatedAt
+		if installedAt.IsZero() {
+			installedAt = e.InstalledAt
+		}
+		packages[name] = &Installation{
+			Name:        name,
+			Repo:        repo,
+			Version:     Version{Tag: e.Tag, SHA256: e.SHA256, InstalledAt: installedAt},
+			InstallPath: e.InstallPath,
+		}
+	}
+	return packages, nil
 }
 
-// save writes storage to disk atomically
-func (s *Storage) save(data map[string]*Installation) error {
-	tmpPath := s.filepath + ".tmp"
+// save writes the state as version 2 atomically. Converting a v1 file keeps
+// a one-time copy at <path>.v1.
+func (s *Storage) save(st *state) error {
+	if st.v1 != nil {
+		if err := writeFileExcl(s.filepath+".v1", st.v1); err != nil && !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("back up v1 state: %w", err)
+		}
+	}
 
+	tmpPath := s.filepath + ".tmp"
 	f, err := os.Create(tmpPath)
 	if err != nil {
 		return err
@@ -163,11 +241,14 @@ func (s *Storage) save(data map[string]*Installation) error {
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(data); err != nil {
+	if err := enc.Encode(stateFile{Version: stateVersion, Packages: st.packages}); err != nil {
 		f.Close()
 		return err
 	}
-
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
 	if err := f.Close(); err != nil {
 		return err
 	}
@@ -175,70 +256,20 @@ func (s *Storage) save(data map[string]*Installation) error {
 	return os.Rename(tmpPath, s.filepath)
 }
 
-// migrateFromLockFile imports old text-based lock file
-func (s *Storage) migrateFromLockFile(oldPath string) error {
-	entries, err := parseOldLockFile(oldPath)
+func writeFileExcl(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
-		return fmt.Errorf("parse old lock file: %w", err)
-	}
-
-	data := make(map[string]*Installation)
-	for _, e := range entries {
-		inst := &Installation{
-			Name:        e.Name,
-			Repo:        e.Repo,
-			Tag:         e.Tag,
-			InstallPath: e.InstallPath,
-			InstalledAt: time.Now(), // Unknown, use current time
-			UpdatedAt:   time.Now(),
-		}
-
-		// Calculate hash of existing binary if it exists
-		binPath := e.InstallPath + "/" + e.Name
-		if hash, err := calculateFileSHA256(binPath); err == nil {
-			inst.SHA256 = hash
-		}
-
-		data[e.Name] = inst
-	}
-
-	if err := s.save(data); err != nil {
 		return err
 	}
-
-	// Backup old lock file
-	if err := os.Rename(oldPath, oldPath+".backup"); err != nil {
-		// Non-fatal, just log
-		fmt.Printf("Warning: could not backup old lock file: %v\n", err)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
 	}
-
-	return nil
-}
-
-// parseOldLockFile reads the old text-based format
-func parseOldLockFile(path string) ([]repoEntry, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
 	}
-	defer f.Close()
-
-	var entries []repoEntry
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		parts := strings.Fields(scanner.Text())
-		if len(parts) >= 4 {
-			entry := repoEntry{
-				Name:        parts[0],
-				Tag:         parts[1],
-				Repo:        parts[2],
-				InstallPath: parts[3],
-			}
-			entries = append(entries, entry)
-		}
-	}
-
-	return entries, scanner.Err()
+	return f.Close()
 }
 
 // calculateFileSHA256 computes the SHA256 hash of a file

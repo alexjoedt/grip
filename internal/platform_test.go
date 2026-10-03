@@ -58,7 +58,7 @@ func TestInstallAlreadyInstalledAnySpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 	// v1 recorded the raw user string.
-	if err := storage.Save(&Installation{Name: "repo", Repo: "https://github.com/owner/repo.git", Tag: "v1.0.0"}); err != nil {
+	if err := storage.Save(&Installation{Name: "repo", Repo: "https://github.com/owner/repo.git", Version: Version{Tag: "v1.0.0"}}); err != nil {
 		t.Fatal(err)
 	}
 

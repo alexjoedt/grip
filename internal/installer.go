@@ -92,16 +92,15 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	// Save to storage
-	now := time.Now()
 	inst := &Installation{
-		Name:        installName,
-		Alias:       opts.Alias,
-		Repo:        repo.String(),
-		Tag:         asset.Tag,
-		SHA256:      sha256Hash,
-		InstalledAt: now,
-		UpdatedAt:   now,
-		InstallPath: i.config.BinDir,
+		Name: installName,
+		Repo: repo.String(),
+		Version: Version{
+			Tag:         asset.Tag,
+			Asset:       asset.Name,
+			SHA256:      sha256Hash,
+			InstalledAt: time.Now(),
+		},
 	}
 
 	if err := i.storage.Save(inst); err != nil {
@@ -131,12 +130,9 @@ func (i *Installer) Update(ctx context.Context, name string) error {
 		return fmt.Errorf("package not found: %s", name)
 	}
 
-	// Install with force flag
-	opts := InstallOptions{
-		Repo:  inst.Repo,
-		Tag:   "", // Get latest
-		Force: true,
-		Alias: inst.Alias,
+	opts := InstallOptions{Repo: inst.Repo, Force: true}
+	if repo, err := ParseRepo(inst.Repo); err == nil && repo.Name != name {
+		opts.Alias = name
 	}
 
 	return i.Install(ctx, opts)
@@ -193,7 +189,7 @@ func (i *Installer) Remove(name string) error {
 	}
 
 	// Delete binary
-	binPath := filepath.Join(inst.InstallPath, name)
+	binPath := filepath.Join(i.storage.InstallDir(inst), name)
 	if err := os.Remove(binPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove binary: %w", err)
 	}

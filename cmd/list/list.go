@@ -56,7 +56,7 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 					case "repo":
 						value = inst.Repo
 					case "path":
-						value = inst.InstallPath
+						value = storage.InstallDir(inst)
 					default:
 						return errors.New("unsupported filter field, valid: name, tag, repo, path")
 					}
@@ -71,7 +71,7 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			fmt.Fprintf(tw, "NAME\tTAG\tREPO\tINSTALL PATH\n")
 
 			for _, inst := range installations {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", inst.Name, inst.Tag, inst.Repo, inst.InstallPath)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", inst.Name, inst.Tag, inst.Repo, storage.InstallDir(inst))
 			}
 			return tw.Flush()
 		},

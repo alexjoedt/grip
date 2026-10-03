@@ -1,0 +1,30 @@
+{
+  "rg": {
+    "name": "rg",
+    "repo": "https://github.com/BurntSushi/ripgrep",
+    "tag": "14.1.0",
+    "sha256": "aaaa",
+    "installedAt": "2025-12-01T10:00:00Z",
+    "updatedAt": "2025-12-20T10:00:00Z",
+    "installPath": "/home/u/.grip/bin"
+  },
+  "fzf": {
+    "name": "fzf",
+    "repo": "github.com/junegunn/fzf.git",
+    "tag": "v0.54.0",
+    "sha256": "bbbb",
+    "installedAt": "2025-12-02T10:00:00Z",
+    "updatedAt": "2025-12-02T10:00:00Z",
+    "installPath": "/usr/local/bin"
+  },
+  "version": {
+    "name": "version",
+    "alias": "version",
+    "repo": "github.com/o/v",
+    "tag": "v1",
+    "sha256": "cccc",
+    "installedAt": "2025-12-03T10:00:00Z",
+    "updatedAt": "2025-12-04T10:00:00Z",
+    "installPath": "/home/u/.grip/bin"
+  }
+}
