@@ -21,17 +21,16 @@ type Config struct {
 
 // DefaultConfig creates config with sensible defaults
 func DefaultConfig() (*Config, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("get home directory: %w", err)
+	gripHome := os.Getenv("GRIP_HOME")
+	if gripHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("get home directory: %w", err)
+		}
+		gripHome = filepath.Join(home, ".grip")
+	} else if !filepath.IsAbs(gripHome) {
+		return nil, fmt.Errorf("GRIP_HOME %q: %w", gripHome, ErrNoAbsolutePath)
 	}
-
-	// Handle sudo on Linux
-	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" && runtime.GOOS == "linux" {
-		home = filepath.Join("/home", sudoUser)
-	}
-
-	gripHome := filepath.Join(home, ".grip")
 
 	return &Config{
 		HomeDir:   gripHome,
