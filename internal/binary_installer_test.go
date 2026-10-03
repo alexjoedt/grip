@@ -20,7 +20,7 @@ func TestStoreBinaryAndSwitchLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := storeBinary(src, store, "tool"); err != nil {
+	if err := storeBinary(src, store, "tool", noop); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(store, "tool"))
@@ -48,7 +48,9 @@ func TestStoreBinaryAndSwitchLink(t *testing.T) {
 		t.Errorf("through link = %q, want new", got)
 	}
 
-	if err := storeBinary(filepath.Join(dir, "missing"), store, "x"); err == nil {
+	if err := storeBinary(filepath.Join(dir, "missing"), store, "x", noop); err == nil {
 		t.Error("storeBinary of missing source succeeded")
 	}
 }
+
+func noop() error { return nil }

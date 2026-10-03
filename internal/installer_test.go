@@ -1,6 +1,7 @@
 package grip
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -93,15 +94,7 @@ func (e *installerEnv) assertInstalled(t *testing.T, name, tag string) {
 // that state records previous.
 func (e *installerEnv) assertStore(t *testing.T, name, previous string, tags ...string) {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(e.cfg.HomeDir, "pkgs", name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, en := range entries {
-		got = append(got, en.Name())
-	}
-	slices.Sort(got)
+	got := dirNames(t, filepath.Join(e.cfg.HomeDir, "pkgs", name))
 	slices.Sort(tags)
 	if !slices.Equal(got, tags) {
 		t.Errorf("pkgs/%s = %v, want %v", name, got, tags)
@@ -128,6 +121,20 @@ func (e *installerEnv) assertEmptyState(t *testing.T) {
 	if len(all) != 0 {
 		t.Errorf("state has %d entries, want 0", len(all))
 	}
+}
+
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, en := range entries {
+		names = append(names, en.Name())
+	}
+	slices.Sort(names)
+	return names
 }
 
 func TestInstallNew(t *testing.T) {
@@ -342,6 +349,137 @@ func TestInstallPathConflict(t *testing.T) {
 		t.Fatalf("install over leftover in grip bin: %v", err)
 	}
 	e.assertInstalled(t, name, "v1.0.0")
+}
+
+var errFault = errors.New("injected fault")
+
+// installV1 installs fixture v1.0.0 and replaces its store file with known
+// bytes, so a later fault can be checked against the previous binary.
+func (e *installerEnv) installV1(t *testing.T) []byte {
+	t.Helper()
+	if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(context.Background(), InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	prev := []byte("previous binary")
+	if err := os.WriteFile(filepath.Join(e.cfg.HomeDir, "pkgs", "grip-fixture-zz", "v1.0.0", "grip-fixture-zz"), prev, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return prev
+}
+
+func TestUpdateFaultKeepsPrevious(t *testing.T) {
+	const name = "grip-fixture-zz"
+	for _, stage := range []string{"downloaded", "unpacked", "copying", "stored"} {
+		t.Run(stage, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			prev := e.installV1(t)
+			assertPrevious := func() {
+				t.Helper()
+				if got, err := os.ReadFile(filepath.Join(e.cfg.BinDir, name)); err != nil || !bytes.Equal(got, prev) {
+					t.Errorf("bin/%s = %q, %v; want previous bytes", name, got, err)
+				}
+				if inst, err := e.storage.Get(name); err != nil || inst.Tag != "v1.0.0" {
+					t.Errorf("state = %+v, %v; want tag v1.0.0", inst, err)
+				}
+			}
+
+			inst := e.installer(fakeSource{release: e.release("v1.1.0", "/ok")})
+			hit := false
+			inst.faultHook = func(s string) error {
+				if s != stage {
+					return nil
+				}
+				hit = true
+				assertPrevious()
+				return errFault
+			}
+			if err := inst.Update(context.Background(), name); !errors.Is(err, errFault) {
+				t.Fatalf("Update err = %v, want injected fault", err)
+			}
+			if !hit {
+				t.Fatalf("stage %s not reached", stage)
+			}
+
+			assertPrevious()
+			pkgDir := filepath.Join(e.cfg.HomeDir, "pkgs", name)
+			for dir, want := range map[string][]string{
+				e.cfg.BinDir:                    {name},
+				pkgDir:                          {"v1.0.0"},
+				filepath.Join(pkgDir, "v1.0.0"): {name},
+			} {
+				if got := dirNames(t, dir); !slices.Equal(got, want) {
+					t.Errorf("%s = %v, want %v", dir, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateFaultAfterSwitch(t *testing.T) {
+	const name = "grip-fixture-zz"
+	e := newInstallerEnv(t)
+	e.installV1(t)
+	ctx := context.Background()
+
+	inst := e.installer(fakeSource{release: e.release("v1.1.0", "/ok")})
+	inst.faultHook = func(s string) error {
+		if s == "switched" {
+			return errFault
+		}
+		return nil
+	}
+	if err := inst.Update(ctx, name); !errors.Is(err, errFault) {
+		t.Fatalf("Update err = %v, want injected fault", err)
+	}
+	if got, err := e.storage.Get(name); err != nil || got.Tag != "v1.0.0" {
+		t.Fatalf("state = %+v, %v; want tag v1.0.0", got, err)
+	}
+
+	inst.faultHook = nil
+	if err := inst.Update(ctx, name); err != nil {
+		t.Fatalf("repairing update: %v", err)
+	}
+	e.assertInstalled(t, name, "v1.1.0")
+	e.assertStore(t, name, "v1.0.0", "v1.0.0", "v1.1.0")
+}
+
+func TestRemoveFaultResumes(t *testing.T) {
+	const name = "grip-fixture-zz"
+	tests := map[string]bool{"unlinked": false, "deleted": true} // stage: needs reinstall
+	for stage, reinstall := range tests {
+		t.Run(stage, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			e.installV1(t)
+			ctx := context.Background()
+			inst := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")})
+			inst.faultHook = func(s string) error {
+				if s == stage {
+					return errFault
+				}
+				return nil
+			}
+			if err := inst.Remove(ctx, name); !errors.Is(err, errFault) {
+				t.Fatalf("Remove err = %v, want injected fault", err)
+			}
+
+			inst.faultHook = nil
+			if reinstall {
+				if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+					t.Fatalf("reinstall: %v", err)
+				}
+			}
+			if err := inst.Remove(ctx, name); err != nil {
+				t.Fatalf("resumed remove: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(e.cfg.BinDir, name)); !os.IsNotExist(err) {
+				t.Errorf("bin entry still exists: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(e.cfg.HomeDir, "pkgs", name)); !os.IsNotExist(err) {
+				t.Errorf("store dir still exists: %v", err)
+			}
+			e.assertEmptyState(t)
+		})
+	}
 }
 
 func TestInstallFailureLeavesNoState(t *testing.T) {

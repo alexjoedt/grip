@@ -21,6 +21,7 @@ type Installer struct {
 	storage    *Storage
 	source     Source
 	httpClient *http.Client
+	faultHook  func(stage string) error
 }
 
 // NewInstaller creates a new installer
@@ -115,6 +116,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	sha256Hash, err := i.installAsset(ctx, asset, filepath.Join(i.pkgDir(installName), dir), installName)
 	if err != nil {
 		return fmt.Errorf("install: %w", err)
+	}
+	if err := i.stage("switched"); err != nil {
+		return err
 	}
 
 	inst := &Installation{
@@ -222,6 +226,10 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 		cleanup()
 		return "", nil, fmt.Errorf("download: %w", err)
 	}
+	if err := i.stage("downloaded"); err != nil {
+		cleanup()
+		return "", nil, err
+	}
 
 	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
 	binPath, err := Unpack(archivePath, ws.UnpackDir())
@@ -229,8 +237,20 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 		cleanup()
 		return "", nil, fmt.Errorf("unpack: %w", err)
 	}
+	if err := i.stage("unpacked"); err != nil {
+		cleanup()
+		return "", nil, err
+	}
 
 	return binPath, cleanup, nil
+}
+
+// stage runs the test fault hook at a named step; nil in production.
+func (i *Installer) stage(name string) error {
+	if i.faultHook == nil {
+		return nil
+	}
+	return i.faultHook(name)
 }
 
 func (i *Installer) pkgDir(name string) string {
@@ -259,7 +279,10 @@ func (i *Installer) storeAndSwitch(binPath, storeDir, name string) (string, erro
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		return "", fmt.Errorf("create store dir: %w", err)
 	}
-	if err := storeBinary(binPath, storeDir, name); err != nil {
+	if err := storeBinary(binPath, storeDir, name, func() error { return i.stage("copying") }); err != nil {
+		return "", err
+	}
+	if err := i.stage("stored"); err != nil {
 		return "", err
 	}
 	storePath := filepath.Join(storeDir, name)
@@ -328,10 +351,16 @@ func (i *Installer) Remove(ctx context.Context, name string) error {
 	if err := os.Remove(binPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove binary: %w", err)
 	}
+	if err := i.stage("unlinked"); err != nil {
+		return err
+	}
 
 	// Remove from storage
 	if err := i.storage.Delete(name); err != nil {
 		return fmt.Errorf("remove from storage: %w", err)
+	}
+	if err := i.stage("deleted"); err != nil {
+		return err
 	}
 
 	if err := os.RemoveAll(i.pkgDir(name)); err != nil {

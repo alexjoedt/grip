@@ -9,7 +9,8 @@ import (
 
 // storeBinary copies the executable at srcPath to dir/name via a synced temp
 // file and a rename, so dir/name is either the old or the complete new file.
-func storeBinary(srcPath, dir, name string) error {
+// midCopy runs halfway through the copy and aborts it on error.
+func storeBinary(srcPath, dir, name string, midCopy func() error) error {
 	src, err := os.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("open source binary: %w", err)
@@ -32,7 +33,14 @@ func storeBinary(srcPath, dir, name string) error {
 	defer func() { _ = tmp.Close() }()
 
 	bar := NewProgressBar(int(srcInfo.Size()), "[cyan][3/3][reset] Installing")
-	if _, err := io.Copy(io.MultiWriter(tmp, bar), src); err != nil {
+	w := io.MultiWriter(tmp, bar)
+	if _, err := io.CopyN(w, src, srcInfo.Size()/2); err != nil {
+		return fmt.Errorf("copy binary: %w", err)
+	}
+	if err := midCopy(); err != nil {
+		return err
+	}
+	if _, err := io.Copy(w, src); err != nil {
 		return fmt.Errorf("copy binary: %w", err)
 	}
 	fmt.Println() // new line after progress bar
