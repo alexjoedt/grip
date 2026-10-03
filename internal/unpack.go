@@ -12,27 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/h2non/filetype"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 )
 
-type unpackFn func(io.Reader, string, *progressbar.ProgressBar) error
-
-// sanitizePath joins destination and name, then verifies the result stays
-// inside destination, preventing zip-slip / path traversal attacks.
-// Absolute paths in archive entries are rejected explicitly.
-func sanitizePath(destination, name string) (string, error) {
-	if filepath.IsAbs(name) {
-		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
-	}
-	target := filepath.Clean(filepath.Join(destination, name))
-	rel, err := filepath.Rel(destination, target)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("path traversal attempt: %q escapes destination directory", name)
-	}
-	return target, nil
-}
+type unpackFn func(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error
 
 var unpackers = map[string]unpackFn{
 	".tar.gz":  unpackTarGz,
@@ -64,7 +50,7 @@ func Unpack(archivePath, destDir string) (string, error) {
 		return "", fmt.Errorf("stat archive: %w", err)
 	}
 
-	ext, fn, err := getUnpackFn(archivePath)
+	_, fn, err := getUnpackFn(archivePath)
 	if err != nil {
 		return "", err
 	}
@@ -73,21 +59,12 @@ func Unpack(archivePath, destDir string) (string, error) {
 		return "", fmt.Errorf("create destination directory: %w", err)
 	}
 
-	archive, err := os.Open(archivePath)
+	root, err := os.OpenRoot(destDir)
 	if err != nil {
-		return "", fmt.Errorf("open archive: %w", err)
+		return "", fmt.Errorf("open destination directory: %w", err)
 	}
-	defer archive.Close()
-
-	unpackDest := destDir
-	if ext == ".bz2" {
-		// .bz2 files need special handling
-		unpackDest = filepath.Join(destDir, filepath.Base(archivePath))
-		unpackDest = strings.TrimSuffix(unpackDest, ext)
-	}
-
 	bar := NewProgressBar(int(archiveInfo.Size()), "[cyan][2/3][reset] Unpacking")
-	if err := fn(archive, unpackDest, bar); err != nil {
+	if err := errors.Join(fn(archivePath, root, bar), root.Close()); err != nil {
 		return "", fmt.Errorf("unpack archive: %w", err)
 	}
 	fmt.Println() // new line after progress bar
@@ -184,140 +161,127 @@ func detectFileType(path string) (string, error) {
 	return kind.MIME.Value, nil
 }
 
-// unpackTar iterates over a tar stream and extracts entries into destination.
+// fileMode maps an archive mode to 0755 when any exec bit is set, else 0644,
+// so setuid, setgid and sticky bits never reach disk.
+func fileMode(m os.FileMode) os.FileMode {
+	if m&0o111 != 0 {
+		return 0o755
+	}
+	return 0o644
+}
+
+// writeFile creates name inside root with mode and copies r into it.
+func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader) error {
+	if dir := filepath.Dir(name); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(f, r); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	return f.Close()
+}
+
+// unpackTar iterates over a tar stream and extracts entries into root.
 // r should already be a decompressed reader (the caller handles decompression).
-func unpackTar(r io.Reader, destination string) error {
+func unpackTar(r io.Reader, root *os.Root) error {
 	tr := tar.NewReader(r)
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
-			break
+			return nil
 		}
-		if err != nil {
-			return err
-		}
-
-		target, err := sanitizePath(destination, header.Name)
 		if err != nil {
 			return err
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode).Perm()); err != nil {
-				return err
+			if err := root.MkdirAll(header.Name, 0o755); err != nil {
+				return fmt.Errorf("extract %q: %w", header.Name, err)
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
+			if err := writeFile(root, header.Name, fileMode(os.FileMode(header.Mode)), tr); err != nil {
+				return fmt.Errorf("extract %q: %w", header.Name, err)
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode).Perm())
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				if cerr := f.Close(); cerr != nil {
-					return errors.Join(err, cerr)
-				}
-				return err
-			}
-			if err := f.Close(); err != nil {
-				return err
-			}
+		case tar.TypeSymlink, tar.TypeLink:
+			logger.Info("Skipping link %s -> %s", header.Name, header.Linkname)
 		}
 	}
-	return nil
 }
 
-func unpackTarGz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	gzr, err := gzip.NewReader(io.TeeReader(packageFile, bar))
+// openTar opens archivePath and passes it through decompress before extracting.
+func openTar(archivePath string, root *os.Root, bar *progressbar.ProgressBar, decompress func(io.Reader) (io.Reader, error)) error {
+	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
 	}
-	defer gzr.Close()
-	return unpackTar(gzr, destination)
-}
-
-func unpackTarBz2(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	bzr := bzip2.NewReader(io.TeeReader(packageFile, bar))
-	return unpackTar(bzr, destination)
-}
-
-func unpackBz2(packageReader io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	bz2Reader := bzip2.NewReader(io.TeeReader(packageReader, bar))
-
-	outFile, err := os.Create(destination)
+	defer f.Close()
+	r, err := decompress(io.TeeReader(f, bar))
 	if err != nil {
 		return err
 	}
-	defer outFile.Close()
-
-	_, err = io.Copy(outFile, bz2Reader)
-	return err
+	return unpackTar(r, root)
 }
 
-func unpackZip(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
+func unpackTarGz(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+	return openTar(archivePath, root, bar, func(r io.Reader) (io.Reader, error) { return gzip.NewReader(r) })
+}
 
-	tmpFile, err := os.CreateTemp("", "temp-zip")
+func unpackTarBz2(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+	return openTar(archivePath, root, bar, func(r io.Reader) (io.Reader, error) { return bzip2.NewReader(r), nil })
+}
+
+func unpackTarXz(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+	return openTar(archivePath, root, bar, func(r io.Reader) (io.Reader, error) { return xz.NewReader(r) })
+}
+
+// unpackBz2 decompresses a single-file .bz2 into root, named after the archive without its extension.
+func unpackBz2(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpFile.Name())
+	defer f.Close()
+	name := filepath.Base(archivePath)
+	name = name[:len(name)-len(".bz2")]
+	return writeFile(root, name, 0o644, bzip2.NewReader(io.TeeReader(f, bar)))
+}
 
-	if _, err = io.Copy(tmpFile, packageFile); err != nil {
-		return err
-	}
-
-	r, err := zip.OpenReader(tmpFile.Name())
+func unpackZip(archivePath string, root *os.Root, bar *progressbar.ProgressBar) (err error) {
+	r, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { err = errors.Join(err, r.Close()) }()
 
 	for _, f := range r.File {
-		if err := func(f *zip.File) error {
-			rc, err := f.Open()
-			if err != nil {
-				return err
-			}
-			defer rc.Close()
-
-			fpath, err := sanitizePath(destination, f.Name)
-			if err != nil {
-				return err
-			}
-			if f.FileInfo().IsDir() {
-				os.MkdirAll(fpath, os.ModePerm)
-			} else {
-				var fdir string
-				if lastIndex := strings.LastIndex(fpath, string(os.PathSeparator)); lastIndex > -1 {
-					fdir = fpath[:lastIndex]
-					os.MkdirAll(fdir, os.ModePerm)
-				}
-
-				outFile, err := os.OpenFile(
-					fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-				if err != nil {
-					return err
-				}
-				defer outFile.Close()
-				_, err = io.Copy(outFile, rc)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}(f); err != nil {
-			return err
+		if err := extractZipEntry(f, root); err != nil {
+			return fmt.Errorf("extract %q: %w", f.Name, err)
 		}
 	}
 	return nil
 }
 
-func unpackTarXz(packageFile io.Reader, destination string, bar *progressbar.ProgressBar) error {
-	xzr, err := xz.NewReader(io.TeeReader(packageFile, bar))
+func extractZipEntry(f *zip.File, root *os.Root) error {
+	mode := f.Mode()
+	switch {
+	case mode.IsDir():
+		return root.MkdirAll(f.Name, 0o755)
+	case mode&os.ModeSymlink != 0:
+		logger.Info("Skipping link %s", f.Name)
+		return nil
+	case !mode.IsRegular():
+		return nil
+	}
+	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
-	return unpackTar(xzr, destination)
+	return errors.Join(writeFile(root, f.Name, fileMode(mode), rc), rc.Close())
 }

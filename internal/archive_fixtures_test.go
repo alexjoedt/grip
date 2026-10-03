@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/schollz/progressbar/v3"
@@ -120,6 +122,8 @@ type tarEntry struct {
 	content []byte
 	mode    int64
 	isDir   bool
+	link    byte // tar.TypeSymlink or tar.TypeLink
+	target  string
 }
 
 // newTarStream builds an in-memory tar stream from the given entries.
@@ -140,11 +144,15 @@ func newTarStream(t *testing.T, entries []tarEntry) *bytes.Reader {
 		if e.isDir {
 			typeflag = tar.TypeDir
 		}
+		if e.link != 0 {
+			typeflag = e.link
+		}
 		hdr := &tar.Header{
 			Name:     e.name,
 			Mode:     mode,
 			Size:     int64(len(e.content)),
 			Typeflag: typeflag,
+			Linkname: e.target,
 		}
 		require.NoError(t, tw.WriteHeader(hdr))
 		if len(e.content) > 0 {
@@ -154,6 +162,23 @@ func newTarStream(t *testing.T, entries []tarEntry) *bytes.Reader {
 	}
 	require.NoError(t, tw.Close())
 	return bytes.NewReader(buf.Bytes())
+}
+
+// openRoot opens dir as an os.Root that is closed when the test ends.
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { root.Close() })
+	return root
+}
+
+// writeArchive writes data to a file named name in a temp dir and returns its path.
+func writeArchive(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+	return path
 }
 
 // silentBar returns a progress bar that discards all output, suitable for tests.

@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,41 +70,6 @@ func TestUnpacker(t *testing.T) {
 	})
 }
 
-// TestSanitizePath verifies the zip-slip protection helper.
-func TestSanitizePath(t *testing.T) {
-	t.Parallel()
-
-	dest := filepath.Join(t.TempDir(), "safedest")
-
-	tests := []struct {
-		name        string
-		entry       string
-		expectError bool
-	}{
-		{"normal file", "subdir/file.txt", false},
-		{"file at root", "file.txt", false},
-		{"traversal with ..", "../../../etc/passwd", true},
-		{"traversal mixed", "subdir/../../etc/passwd", true},
-		{"absolute path entry", string(os.PathSeparator) + "etc" + string(os.PathSeparator) + "passwd", true},
-		{"double dot disguised", "subdir/../../../etc/shadow", true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := sanitizePath(dest, tc.entry)
-			if tc.expectError {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "path traversal attempt")
-				assert.Empty(t, got)
-			} else {
-				assert.NoError(t, err)
-				assert.NotEmpty(t, got)
-			}
-		})
-	}
-}
-
 // TestUnpackerZipSlip verifies that crafted archives with traversal paths are rejected.
 func TestUnpackerZipSlip(t *testing.T) {
 	t.Parallel()
@@ -127,7 +93,8 @@ func TestUnpackerZipSlip(t *testing.T) {
 			destDir := filepath.Join(tempDir, "output")
 			_, err := Unpack(archivePath, destDir)
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "path traversal attempt")
+			assert.Contains(t, err.Error(), "escapes")
+			assert.NoFileExists(t, filepath.Join(tempDir, "outside.txt"))
 		})
 
 		t.Run("zip traversal: "+entry, func(t *testing.T) {
@@ -142,7 +109,8 @@ func TestUnpackerZipSlip(t *testing.T) {
 			destDir := filepath.Join(tempDir, "output")
 			_, err := Unpack(archivePath, destDir)
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "path traversal attempt")
+			assert.Contains(t, err.Error(), "escapes")
+			assert.NoFileExists(t, filepath.Join(tempDir, "outside.txt"))
 		})
 	}
 }
@@ -156,7 +124,7 @@ func TestUnpackTar(t *testing.T) {
 		dest := t.TempDir()
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "hello.txt", content: []byte("hello world")},
-		}), dest))
+		}), openRoot(t, dest)))
 		got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
 		require.NoError(t, err)
 		assert.Equal(t, "hello world", string(got))
@@ -168,7 +136,7 @@ func TestUnpackTar(t *testing.T) {
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "mydir/", isDir: true},
 			{name: "mydir/file.txt", content: []byte("inside")},
-		}), dest))
+		}), openRoot(t, dest)))
 		assert.DirExists(t, filepath.Join(dest, "mydir"))
 		got, err := os.ReadFile(filepath.Join(dest, "mydir", "file.txt"))
 		require.NoError(t, err)
@@ -180,7 +148,7 @@ func TestUnpackTar(t *testing.T) {
 		dest := t.TempDir()
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "a/b/c/deep.txt", content: []byte("deep")},
-		}), dest))
+		}), openRoot(t, dest)))
 		got, err := os.ReadFile(filepath.Join(dest, "a", "b", "c", "deep.txt"))
 		require.NoError(t, err)
 		assert.Equal(t, "deep", string(got))
@@ -191,7 +159,7 @@ func TestUnpackTar(t *testing.T) {
 		dest := t.TempDir()
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "run.sh", content: []byte("#!/bin/sh"), mode: 0o755},
-		}), dest))
+		}), openRoot(t, dest)))
 		info, err := os.Stat(filepath.Join(dest, "run.sh"))
 		require.NoError(t, err)
 		assert.NotZero(t, info.Mode().Perm()&0o111, "execute bits should be preserved for mode 0755")
@@ -202,7 +170,7 @@ func TestUnpackTar(t *testing.T) {
 		dest := t.TempDir()
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "config.txt", content: []byte("key=val"), mode: 0o600},
-		}), dest))
+		}), openRoot(t, dest)))
 		info, err := os.Stat(filepath.Join(dest, "config.txt"))
 		require.NoError(t, err)
 		assert.Zero(t, info.Mode().Perm()&0o111, "execute bits must not be set for mode 0600")
@@ -218,7 +186,7 @@ func TestUnpackTar(t *testing.T) {
 		// 0o6755 = setuid + setgid + rwxr-xr-x
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "suid-sgid", content: []byte("data"), mode: 0o6755},
-		}), dest))
+		}), openRoot(t, dest)))
 		info, err := os.Stat(filepath.Join(dest, "suid-sgid"))
 		require.NoError(t, err)
 		assert.Zero(t, info.Mode()&os.ModeSetuid, "setuid bit must not be set on extracted file")
@@ -230,7 +198,7 @@ func TestUnpackTar(t *testing.T) {
 		dest := t.TempDir()
 		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
 			{name: "suiddir/", isDir: true, mode: 0o4755},
-		}), dest))
+		}), openRoot(t, dest)))
 		info, err := os.Stat(filepath.Join(dest, "suiddir"))
 		require.NoError(t, err)
 		assert.Zero(t, info.Mode()&os.ModeSetuid, "setuid bit must not be set on extracted directory")
@@ -243,7 +211,7 @@ func TestUnpackTar(t *testing.T) {
 			{name: "bin/", isDir: true},
 			{name: "bin/tool", content: []byte("binary"), mode: 0o755},
 			{name: "etc/config.toml", content: []byte("k=v"), mode: 0o644},
-		}), dest))
+		}), openRoot(t, dest)))
 		assert.FileExists(t, filepath.Join(dest, "bin", "tool"))
 		assert.FileExists(t, filepath.Join(dest, "etc", "config.toml"))
 	})
@@ -253,9 +221,9 @@ func TestUnpackTar(t *testing.T) {
 		dest := t.TempDir()
 		err := unpackTar(newTarStream(t, []tarEntry{
 			{name: "../escape.txt", content: []byte("evil")},
-		}), dest)
+		}), openRoot(t, dest))
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "path traversal attempt")
+		assert.Contains(t, err.Error(), "escapes")
 		_, statErr := os.Stat(filepath.Join(filepath.Dir(dest), "escape.txt"))
 		assert.True(t, os.IsNotExist(statErr), "traversal file must not have been created")
 	})
@@ -271,9 +239,9 @@ func TestUnpackTar(t *testing.T) {
 		_ = tw.WriteHeader(&tar.Header{Name: "/etc/passwd", Mode: 0o644, Size: int64(len(content))})
 		_, _ = tw.Write(content)
 		_ = tw.Close()
-		err := unpackTar(&buf, dest)
+		err := unpackTar(&buf, openRoot(t, dest))
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "path traversal attempt")
+		assert.Contains(t, err.Error(), "escapes")
 	})
 }
 
@@ -292,7 +260,7 @@ func TestUnpackTarGzDirect(t *testing.T) {
 	require.NoError(t, tw.Close())
 	require.NoError(t, gw.Close())
 
-	require.NoError(t, unpackTarGz(bytes.NewReader(buf.Bytes()), dest, silentBar()))
+	require.NoError(t, unpackTarGz(writeArchive(t, "a.tar.gz", buf.Bytes()), openRoot(t, dest), silentBar()))
 	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello from tar.gz", string(got))
@@ -314,7 +282,7 @@ func TestUnpackTarXzDirect(t *testing.T) {
 	require.NoError(t, tw.Close())
 	require.NoError(t, xw.Close())
 
-	require.NoError(t, unpackTarXz(bytes.NewReader(buf.Bytes()), dest, silentBar()))
+	require.NoError(t, unpackTarXz(writeArchive(t, "a.tar.xz", buf.Bytes()), openRoot(t, dest), silentBar()))
 	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello from tar.xz", string(got))
@@ -335,7 +303,7 @@ func TestUnpackTarBz2Direct(t *testing.T) {
 	require.NoError(t, tw.Close())
 
 	compressed := bzip2Compress(t, tarBuf.Bytes())
-	require.NoError(t, unpackTarBz2(bytes.NewReader(compressed), dest, silentBar()))
+	require.NoError(t, unpackTarBz2(writeArchive(t, "a.tar.bz2", compressed), openRoot(t, dest), silentBar()))
 	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello from tar.bz2", string(got))
@@ -349,9 +317,8 @@ func TestUnpackBz2Direct(t *testing.T) {
 
 	content := []byte("hello from raw bz2")
 	compressed := bzip2Compress(t, content)
-	outPath := filepath.Join(dest, "hello.txt")
-	require.NoError(t, unpackBz2(bytes.NewReader(compressed), outPath, silentBar()))
-	got, err := os.ReadFile(outPath)
+	require.NoError(t, unpackBz2(writeArchive(t, "hello.txt.bz2", compressed), openRoot(t, dest), silentBar()))
+	got, err := os.ReadFile(filepath.Join(dest, "hello.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello from raw bz2", string(got))
 }
@@ -388,7 +355,7 @@ func TestUnpackZipDirect(t *testing.T) {
 
 	require.NoError(t, zw.Close())
 
-	require.NoError(t, unpackZip(bytes.NewReader(buf.Bytes()), dest, silentBar()))
+	require.NoError(t, unpackZip(writeArchive(t, "a.zip", buf.Bytes()), openRoot(t, dest), silentBar()))
 	assert.DirExists(t, filepath.Join(dest, "subdir"))
 	got, err := os.ReadFile(filepath.Join(dest, "subdir", "hello.txt"))
 	require.NoError(t, err)
@@ -463,4 +430,103 @@ func TestUnpackerUnpackTarBz2(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, execPath)
 	assert.FileExists(t, execPath)
+}
+
+// TestUnpackModes verifies modes are normalized to 0755 or 0644 in tar and zip.
+func TestUnpackModes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in   int64
+		want os.FileMode
+	}{
+		{0o755, 0o755},
+		{0o700, 0o755},
+		{0o100, 0o755},
+		{0o600, 0o644},
+		{0o666, 0o644},
+		{0o6755, 0o755},
+		{0o1777, 0o755},
+		{0o4644, 0o644},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("tar %o", tc.in), func(t *testing.T) {
+			t.Parallel()
+			dest := t.TempDir()
+			require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+				{name: "f", content: []byte("x"), mode: tc.in},
+			}), openRoot(t, dest)))
+			info, err := os.Stat(filepath.Join(dest, "f"))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, info.Mode())
+		})
+
+		t.Run(fmt.Sprintf("zip %o", tc.in), func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			zw := zip.NewWriter(&buf)
+			hdr := &zip.FileHeader{Name: "f"}
+			mode := os.FileMode(tc.in).Perm()
+			if tc.in&0o4000 != 0 {
+				mode |= os.ModeSetuid
+			}
+			if tc.in&0o2000 != 0 {
+				mode |= os.ModeSetgid
+			}
+			if tc.in&0o1000 != 0 {
+				mode |= os.ModeSticky
+			}
+			hdr.SetMode(mode)
+			w, err := zw.CreateHeader(hdr)
+			require.NoError(t, err)
+			_, err = w.Write([]byte("x"))
+			require.NoError(t, err)
+			require.NoError(t, zw.Close())
+
+			dest := t.TempDir()
+			require.NoError(t, unpackZip(writeArchive(t, "a.zip", buf.Bytes()), openRoot(t, dest), silentBar()))
+			info, err := os.Stat(filepath.Join(dest, "f"))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, info.Mode())
+		})
+	}
+}
+
+// TestUnpackSkipsLinks verifies symlink and hardlink entries never reach disk.
+func TestUnpackSkipsLinks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tar", func(t *testing.T) {
+		t.Parallel()
+		dest := t.TempDir()
+		require.NoError(t, unpackTar(newTarStream(t, []tarEntry{
+			{name: "tool", content: []byte("bin"), mode: 0o755},
+			{name: "sym", link: tar.TypeSymlink, target: "/etc/passwd"},
+			{name: "hard", link: tar.TypeLink, target: "tool"},
+		}), openRoot(t, dest)))
+		assert.FileExists(t, filepath.Join(dest, "tool"))
+		for _, name := range []string{"sym", "hard"} {
+			_, err := os.Lstat(filepath.Join(dest, name))
+			assert.True(t, os.IsNotExist(err), "%s must not exist", name)
+		}
+	})
+
+	t.Run("zip", func(t *testing.T) {
+		t.Parallel()
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		hdr := &zip.FileHeader{Name: "sym"}
+		hdr.SetMode(os.ModeSymlink | 0o777)
+		w, err := zw.CreateHeader(hdr)
+		require.NoError(t, err)
+		_, err = w.Write([]byte("/etc/passwd"))
+		require.NoError(t, err)
+		require.NoError(t, zw.Close())
+
+		dest := t.TempDir()
+		require.NoError(t, unpackZip(writeArchive(t, "a.zip", buf.Bytes()), openRoot(t, dest), silentBar()))
+		_, err = os.Lstat(filepath.Join(dest, "sym"))
+		assert.True(t, os.IsNotExist(err))
+	})
 }
