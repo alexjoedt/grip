@@ -633,3 +633,105 @@ func TestFindBinary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "pkg/age"), got)
 }
+
+// lowerExtractLimits sets the extraction limits for one non-parallel test.
+func lowerExtractLimits(t *testing.T, bytes, entries int64) {
+	t.Helper()
+	oldBytes, oldEntries := maxExtractBytes, maxExtractEntries
+	maxExtractBytes, maxExtractEntries = bytes, entries
+	t.Cleanup(func() { maxExtractBytes, maxExtractEntries = oldBytes, oldEntries })
+}
+
+func zipOf(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
+		require.NoError(t, err)
+		_, err = w.Write(content)
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+func TestUnpackLimits(t *testing.T) {
+	lowerExtractLimits(t, 1000, 5)
+	big := append(machOBinary(), make([]byte, 2000)...)
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	_, err := gw.Write(big)
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+
+	many := map[string][]byte{}
+	for i := range 6 {
+		many[fmt.Sprintf("f%d", i)] = []byte("x")
+	}
+	split := map[string][]byte{"a": make([]byte, 600), "b": make([]byte, 600)}
+
+	tests := map[string]struct {
+		name string
+		data []byte
+	}{
+		"tar.gz bytes":         {"t.tar.gz", tarGzOf(t, map[string][]byte{"tool": big})},
+		"tar.gz bytes summed":  {"t.tar.gz", tarGzOf(t, split)},
+		"tar.gz entries":       {"t.tar.gz", tarGzOf(t, many)},
+		"zip bytes":            {"t.zip", zipOf(t, map[string][]byte{"tool": big})},
+		"zip bytes summed":     {"t.zip", zipOf(t, split)},
+		"zip entries":          {"t.zip", zipOf(t, many)},
+		"single-file gz bytes": {"tool_darwin_amd64.gz", gz.Bytes()},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			dest := t.TempDir()
+			_, err := Unpack(writeArchive(t, tt.name, tt.data), dest, darwinAmd64)
+			require.ErrorIs(t, err, ErrArchiveTooLarge)
+			assert.LessOrEqual(t, dirBytes(t, dest), maxExtractBytes+1)
+		})
+	}
+
+	t.Run("within limits", func(t *testing.T) {
+		_, err := Unpack(writeArchive(t, "t.tar.gz", tarGzOf(t, map[string][]byte{"tool": machOBinary()})), t.TempDir(), darwinAmd64)
+		require.NoError(t, err)
+	})
+}
+
+// TestUnpackZipUnderstatedSize checks that a zip entry declaring fewer bytes
+// than it holds cannot write past the limit.
+func TestUnpackZipUnderstatedSize(t *testing.T) {
+	lowerExtractLimits(t, 1000, 100)
+	data := make([]byte, 5000)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.CreateRaw(&zip.FileHeader{
+		Name:               "tool",
+		Method:             zip.Store,
+		CompressedSize64:   uint64(len(data)),
+		UncompressedSize64: 10,
+	})
+	require.NoError(t, err)
+	_, err = w.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	dest := t.TempDir()
+	_, err = Unpack(writeArchive(t, "t.zip", buf.Bytes()), dest, darwinAmd64)
+	require.Error(t, err)
+	assert.LessOrEqual(t, dirBytes(t, dest), maxExtractBytes+1)
+}
+
+func dirBytes(t *testing.T, dir string) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		fi, err := d.Info()
+		n += fi.Size()
+		return err
+	}))
+	return n
+}

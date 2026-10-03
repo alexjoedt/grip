@@ -1079,3 +1079,24 @@ func TestDigestPin(t *testing.T) {
 		}
 	})
 }
+
+func TestUpdateArchiveTooLargeKeepsPrevious(t *testing.T) {
+	const name = "grip-fixture-zz"
+	e := newInstallerEnv(t)
+	prev := e.installV1(t)
+	lowerExtractLimits(t, 1000, 100)
+	homeBefore := dirNames(t, e.cfg.HomeDir)
+
+	big := tarGzOf(t, map[string][]byte{name: append(machOBinary(), make([]byte, 5000)...)})
+	err := e.installer(fakeSource{release: e.digestRelease("v1.1.0", "/big", big, "")}).Update(context.Background(), name, "", "")
+	if !errors.Is(err, ErrArchiveTooLarge) {
+		t.Fatalf("Update err = %v, want ErrArchiveTooLarge", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(e.cfg.BinDir, name)); err != nil || !bytes.Equal(got, prev) {
+		t.Errorf("bin/%s = %q, %v; want previous bytes", name, got, err)
+	}
+	e.assertStore(t, name, "", "v1.0.0")
+	if got := dirNames(t, e.cfg.HomeDir); !slices.Equal(got, homeBefore) {
+		t.Errorf("home = %v, want %v (workspace left behind?)", got, homeBefore)
+	}
+}

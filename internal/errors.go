@@ -13,4 +13,5 @@ var (
 	ErrAmbiguousBinary error = errors.New("several executables match")
 	ErrDigestMismatch  error = errors.New("digest mismatch")
 	ErrDigestChanged   error = errors.New("digest differs from the recorded one")
+	ErrArchiveTooLarge error = errors.New("archive expands beyond the limit")
 )

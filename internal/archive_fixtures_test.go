@@ -184,13 +184,13 @@ func newTarStream(t *testing.T, entries []tarEntry) *bytes.Reader {
 	return bytes.NewReader(buf.Bytes())
 }
 
-// openRoot opens dir as an os.Root that is closed when the test ends.
-func openRoot(t *testing.T, dir string) *os.Root {
+// openRoot opens dir as an extractRoot that is closed when the test ends.
+func openRoot(t *testing.T, dir string) *extractRoot {
 	t.Helper()
 	root, err := os.OpenRoot(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { root.Close() })
-	return root
+	return &extractRoot{Root: root}
 }
 
 // writeArchive writes data to a file named name in a temp dir and returns its path.

@@ -20,7 +20,29 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-type unpackFn func(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error
+type unpackFn func(archivePath string, root *extractRoot, bar *progressbar.ProgressBar) error
+
+// Extraction limits per archive, counting bytes actually written.
+var (
+	maxExtractBytes   int64 = 2 << 30
+	maxExtractEntries int64 = 100_000
+)
+
+// extractRoot confines extraction to a directory and enforces the limits
+// across all entries of one archive.
+type extractRoot struct {
+	*os.Root
+	written, entries int64
+}
+
+// entry counts one archive entry against maxExtractEntries.
+func (r *extractRoot) entry() error {
+	r.entries++
+	if r.entries > maxExtractEntries {
+		return fmt.Errorf("%w: more than %d entries", ErrArchiveTooLarge, maxExtractEntries)
+	}
+	return nil
+}
 
 var unpackers = map[string]unpackFn{
 	".tar.gz":  unpackTarGz,
@@ -67,10 +89,11 @@ func Unpack(archivePath, destDir string, q binaryQuery) (string, error) {
 		return "", fmt.Errorf("create destination directory: %w", err)
 	}
 
-	root, err := os.OpenRoot(destDir)
+	dir, err := os.OpenRoot(destDir)
 	if err != nil {
 		return "", fmt.Errorf("open destination directory: %w", err)
 	}
+	root := &extractRoot{Root: dir}
 	bar := NewProgressBar(int(archiveInfo.Size()), "[cyan][2/3][reset] Unpacking")
 	if err := errors.Join(fn(archivePath, root, bar), root.Close()); err != nil {
 		return "", fmt.Errorf("unpack archive: %w", err)
@@ -269,7 +292,7 @@ func fileMode(m os.FileMode) os.FileMode {
 }
 
 // writeFile creates name inside root with mode and copies r into it.
-func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader) error {
+func writeFile(root *extractRoot, name string, mode os.FileMode, r io.Reader) error {
 	if dir := filepath.Dir(name); dir != "." {
 		if err := root.MkdirAll(dir, 0o755); err != nil {
 			return err
@@ -279,7 +302,12 @@ func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader) error 
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, r); err != nil {
+	n, err := io.Copy(f, io.LimitReader(r, maxExtractBytes-root.written+1))
+	root.written += n
+	if err == nil && root.written > maxExtractBytes {
+		err = fmt.Errorf("%w: more than %d bytes", ErrArchiveTooLarge, maxExtractBytes)
+	}
+	if err != nil {
 		return errors.Join(err, f.Close())
 	}
 	return f.Close()
@@ -287,7 +315,7 @@ func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader) error 
 
 // unpackTar iterates over a tar stream and extracts entries into root.
 // r should already be a decompressed reader (the caller handles decompression).
-func unpackTar(r io.Reader, root *os.Root) error {
+func unpackTar(r io.Reader, root *extractRoot) error {
 	tr := tar.NewReader(r)
 	for {
 		header, err := tr.Next()
@@ -295,6 +323,9 @@ func unpackTar(r io.Reader, root *os.Root) error {
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		if err := root.entry(); err != nil {
 			return err
 		}
 
@@ -314,7 +345,7 @@ func unpackTar(r io.Reader, root *os.Root) error {
 }
 
 // openTar opens archivePath and passes it through decompress before extracting.
-func openTar(archivePath string, root *os.Root, bar *progressbar.ProgressBar, decompress func(io.Reader) (io.Reader, error)) error {
+func openTar(archivePath string, root *extractRoot, bar *progressbar.ProgressBar, decompress func(io.Reader) (io.Reader, error)) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -331,15 +362,15 @@ func gunzip(r io.Reader) (io.Reader, error)  { return gzip.NewReader(r) }
 func unxz(r io.Reader) (io.Reader, error)    { return xz.NewReader(r) }
 func bunzip2(r io.Reader) (io.Reader, error) { return bzip2.NewReader(r), nil }
 
-func unpackTarGz(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+func unpackTarGz(archivePath string, root *extractRoot, bar *progressbar.ProgressBar) error {
 	return openTar(archivePath, root, bar, gunzip)
 }
 
-func unpackTarBz2(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+func unpackTarBz2(archivePath string, root *extractRoot, bar *progressbar.ProgressBar) error {
 	return openTar(archivePath, root, bar, bunzip2)
 }
 
-func unpackTarXz(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+func unpackTarXz(archivePath string, root *extractRoot, bar *progressbar.ProgressBar) error {
 	return openTar(archivePath, root, bar, unxz)
 }
 
@@ -351,7 +382,7 @@ func singleName(archivePath, ext string) string {
 
 // unpackSingle decompresses a single-file asset into root under singleName.
 func unpackSingle(ext string, decompress func(io.Reader) (io.Reader, error)) unpackFn {
-	return func(archivePath string, root *os.Root, bar *progressbar.ProgressBar) error {
+	return func(archivePath string, root *extractRoot, bar *progressbar.ProgressBar) error {
 		f, err := os.Open(archivePath)
 		if err != nil {
 			return err
@@ -365,7 +396,7 @@ func unpackSingle(ext string, decompress func(io.Reader) (io.Reader, error)) unp
 	}
 }
 
-func unpackZip(archivePath string, root *os.Root, bar *progressbar.ProgressBar) (err error) {
+func unpackZip(archivePath string, root *extractRoot, bar *progressbar.ProgressBar) (err error) {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return err
@@ -373,6 +404,9 @@ func unpackZip(archivePath string, root *os.Root, bar *progressbar.ProgressBar) 
 	defer func() { err = errors.Join(err, r.Close()) }()
 
 	for _, f := range r.File {
+		if err := root.entry(); err != nil {
+			return err
+		}
 		if err := extractZipEntry(f, root); err != nil {
 			return fmt.Errorf("extract %q: %w", f.Name, err)
 		}
@@ -380,7 +414,7 @@ func unpackZip(archivePath string, root *os.Root, bar *progressbar.ProgressBar) 
 	return nil
 }
 
-func extractZipEntry(f *zip.File, root *os.Root) error {
+func extractZipEntry(f *zip.File, root *extractRoot) error {
 	mode := f.Mode()
 	switch {
 	case mode.IsDir():
