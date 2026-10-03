@@ -41,7 +41,7 @@ func DefaultConfig() (*Config, error) {
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 		OSAliases: map[string][]string{
-			"darwin": {"macos"},
+			"darwin": {"macos", "mac"},
 			"linux":  {"musl"},
 		},
 		ArchAliases: map[string][]string{
@@ -53,7 +53,7 @@ func DefaultConfig() (*Config, error) {
 
 // EnsureDirs creates necessary directories
 func (c *Config) EnsureDirs() error {
-	return os.MkdirAll(c.BinDir, 0755)
+	return os.MkdirAll(c.BinDir, 0o755)
 }
 
 // CheckPathEnv checks if BinDir is in PATH
