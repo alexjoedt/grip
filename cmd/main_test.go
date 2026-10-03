@@ -32,3 +32,11 @@ func TestListOnEmptyHome(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestShortBuild(t *testing.T) {
+	for in, want := range map[string]string{"": "", "abc": "abc", "0123456789abcdef": "01234567"} {
+		if got := shortBuild(in); got != want {
+			t.Errorf("shortBuild(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

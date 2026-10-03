@@ -29,12 +29,6 @@ This command will install restic in `~/.grip/bin/restic`.
 
 Dont forget to add the grip bin path to your `PATH` variable.
 
-Alternatively you can set a diffrent path with the flag `--destination` or `-d`.
-
-```bash
-$ sudo grip install -d /usr/local/bin github.com/restic/restic
-```
-
 ## Restrictions
 
 The project release must be a standalone executable.

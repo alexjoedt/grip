@@ -53,11 +53,6 @@ func (w *Workspace) UnpackDir() string {
 	return w.unpackDir
 }
 
-// RootDir returns the root directory of the workspace
-func (w *Workspace) RootDir() string {
-	return w.rootDir
-}
-
 // Cleanup removes all workspace directories
 func (w *Workspace) Cleanup() error {
 	if w.rootDir == "" {

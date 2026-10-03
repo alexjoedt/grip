@@ -282,13 +282,13 @@ func TestWorkspace(t *testing.T) {
 		ws, err := NewWorkspace("", "test-workspace")
 		require.NoError(t, err)
 
-		assert.DirExists(t, ws.RootDir())
+		assert.DirExists(t, ws.rootDir)
 		assert.DirExists(t, ws.DownloadDir())
 		assert.DirExists(t, ws.UnpackDir())
 
 		err = ws.Cleanup()
 		assert.NoError(t, err)
-		assert.NoDirExists(t, ws.RootDir())
+		assert.NoDirExists(t, ws.rootDir)
 	})
 
 	t.Run("cleanup idempotent", func(t *testing.T) {

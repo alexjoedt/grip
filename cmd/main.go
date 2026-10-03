@@ -98,10 +98,17 @@ func versionCommand(app *cli.Command) {
 		Action: func(context.Context, *cli.Command) error {
 			logger.Println("grip - Installing effortlessly single-executable releases from GitHub projects")
 			logger.Println("%s", version)
-			logger.Println("%s", build[:8])
+			logger.Println("%s", shortBuild(build))
 			logger.Println("%s", date)
 			return nil
 		},
 	}
 	app.Commands = append(app.Commands, cmd)
+}
+
+func shortBuild(b string) string {
+	if len(b) > 8 {
+		return b[:8]
+	}
+	return b
 }

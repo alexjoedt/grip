@@ -30,11 +30,6 @@ func NewInstaller(cfg *Config, storage *Storage, source Source, httpClient *http
 	}
 }
 
-// Config returns the installer's config (for lock file operations)
-func (i *Installer) Config() *Config {
-	return i.config
-}
-
 // InstallOptions holds installation parameters
 type InstallOptions struct {
 	Repo  string
