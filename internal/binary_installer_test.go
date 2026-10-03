@@ -4,53 +4,51 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// Test BinaryInstaller service
-func TestBinaryInstaller(t *testing.T) {
-	t.Parallel()
+func TestStoreBinaryAndSwitchLink(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(dir, "store")
+	if err := os.Mkdir(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "tool"), []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("successful install", func(t *testing.T) {
-		t.Parallel()
+	if err := storeBinary(src, store, "tool"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(store, "tool"))
+	if err != nil || string(got) != "new" {
+		t.Fatalf("stored binary = %q, %v; want new", got, err)
+	}
+	if fi, _ := os.Stat(filepath.Join(store, "tool")); fi.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755", fi.Mode().Perm())
+	}
+	if entries, _ := os.ReadDir(store); len(entries) != 1 {
+		t.Errorf("store has %d entries, want 1 (no temp leftovers)", len(entries))
+	}
 
-		// Create test binary
-		tempDir := filepath.Join(os.TempDir(), "test-binary-installer")
-		require.NoError(t, os.MkdirAll(tempDir, 0755))
-		defer os.RemoveAll(tempDir)
+	link := filepath.Join(dir, "tool")
+	if err := os.WriteFile(link, []byte("v1 regular file"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := switchLink("store/tool", link); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(link); err != nil || target != "store/tool" {
+		t.Fatalf("Readlink = %q, %v; want store/tool", target, err)
+	}
+	if got, _ := os.ReadFile(link); string(got) != "new" {
+		t.Errorf("through link = %q, want new", got)
+	}
 
-		srcPath := filepath.Join(tempDir, "source-binary")
-		require.NoError(t, os.WriteFile(srcPath, []byte("test binary content"), 0755))
-
-		// Install
-		binDir := filepath.Join(tempDir, "bin")
-		err := InstallBinary(srcPath, binDir, "test-binary")
-		assert.NoError(t, err)
-
-		// Verify
-		installedPath := filepath.Join(binDir, "test-binary")
-		assert.FileExists(t, installedPath)
-
-		info, err := os.Stat(installedPath)
-		assert.NoError(t, err)
-		assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
-	})
-
-	t.Run("invalid bin directory", func(t *testing.T) {
-		t.Parallel()
-
-		err := InstallBinary("dummy-src", "", "name")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot be empty")
-	})
-
-	t.Run("relative path rejected", func(t *testing.T) {
-		t.Parallel()
-
-		err := InstallBinary("dummy-src", "relative/path", "name")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "must be absolute path")
-	})
+	if err := storeBinary(filepath.Join(dir, "missing"), store, "x"); err == nil {
+		t.Error("storeBinary of missing source succeeded")
+	}
 }

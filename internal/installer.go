@@ -86,9 +86,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 
-	// Check if name conflicts with another source
-	if _, err := exec.LookPath(installName); err == nil && existing == nil {
-		return fmt.Errorf("%s is already installed from another source", installName)
+	// A leftover in grip's own bin dir without a state entry is overwritten.
+	if p, err := exec.LookPath(installName); err == nil && existing == nil && filepath.Dir(p) != i.config.BinDir {
+		return fmt.Errorf("%s is already installed from another source: %s", installName, p)
 	}
 
 	// Fetch release
@@ -98,7 +98,8 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 
-	if _, err := tagDir(release.Tag); err != nil {
+	dir, err := tagDir(release.Tag)
+	if err != nil {
 		return err
 	}
 
@@ -111,19 +112,11 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	asset.Tag = release.Tag
 	asset.Alias = opts.Alias
 
-	// Install asset
-	if err := i.installAsset(ctx, asset); err != nil {
+	sha256Hash, err := i.installAsset(ctx, asset, filepath.Join(i.pkgDir(installName), dir), installName)
+	if err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
 
-	// Calculate SHA256 of installed binary
-	binPath := filepath.Join(i.config.BinDir, installName)
-	sha256Hash, err := calculateFileSHA256(binPath)
-	if err != nil {
-		logger.Warn("Could not calculate SHA256: %v", err)
-	}
-
-	// Save to storage
 	inst := &Installation{
 		Name: installName,
 		Repo: repo.String(),
@@ -134,10 +127,28 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 			InstalledAt: time.Now(),
 		},
 	}
+	if existing != nil {
+		inst.Pinned, inst.AssetOverride, inst.BinOverride = existing.Pinned, existing.AssetOverride, existing.BinOverride
+		inst.Previous = existing.Previous
+		if existing.Tag != inst.Tag {
+			prev := existing.Version
+			inst.Previous = &prev
+		}
+	}
 
 	if err := i.storage.Save(inst); err != nil {
 		return fmt.Errorf("save installation: %w", err)
 	}
+
+	if existing != nil && existing.InstallPath != "" {
+		old := filepath.Join(existing.InstallPath, installName)
+		if old != filepath.Join(i.config.BinDir, installName) {
+			if err := os.Remove(old); err != nil && !errors.Is(err, os.ErrNotExist) {
+				logger.Warn("Could not remove old binary %s: %v", old, err)
+			}
+		}
+	}
+	i.cleanStore(inst)
 
 	if !i.config.CheckPathEnv() {
 		logger.Warn("The grip path '%s' isn't in PATH", i.config.BinDir)
@@ -222,18 +233,81 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 	return binPath, cleanup, nil
 }
 
-// installAsset orchestrates the complete installation workflow for an asset.
-func (i *Installer) installAsset(ctx context.Context, asset *Asset) error {
+func (i *Installer) pkgDir(name string) string {
+	return filepath.Join(i.config.HomeDir, "pkgs", name)
+}
+
+// installAsset downloads the asset, writes its binary to storeDir/name and
+// switches bin/name to it. It returns the SHA256 of the stored binary.
+func (i *Installer) installAsset(ctx context.Context, asset *Asset, storeDir, name string) (string, error) {
 	binPath, cleanup, err := i.downloadAndUnpack(ctx, asset)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer cleanup()
 
-	if err := InstallBinary(binPath, i.config.BinDir, asset.BinaryName()); err != nil {
-		return fmt.Errorf("install: %w", err)
+	_, statErr := os.Stat(storeDir)
+	created := errors.Is(statErr, os.ErrNotExist)
+	sum, err := i.storeAndSwitch(binPath, storeDir, name)
+	if err != nil && created {
+		_ = os.RemoveAll(storeDir)
 	}
-	return nil
+	return sum, err
+}
+
+func (i *Installer) storeAndSwitch(binPath, storeDir, name string) (string, error) {
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		return "", fmt.Errorf("create store dir: %w", err)
+	}
+	if err := storeBinary(binPath, storeDir, name); err != nil {
+		return "", err
+	}
+	storePath := filepath.Join(storeDir, name)
+	sum, err := calculateFileSHA256(storePath)
+	if err != nil {
+		return "", fmt.Errorf("hash binary: %w", err)
+	}
+
+	if err := os.MkdirAll(i.config.BinDir, 0o755); err != nil {
+		return "", fmt.Errorf("create bin dir: %w", err)
+	}
+	target, err := filepath.Rel(i.config.BinDir, storePath)
+	if err != nil {
+		return "", err
+	}
+	if err := switchLink(target, filepath.Join(i.config.BinDir, name)); err != nil {
+		return "", err
+	}
+	return sum, nil
+}
+
+// cleanStore deletes everything in the package's store dir except the
+// current and previous tag directories.
+func (i *Installer) cleanStore(inst *Installation) {
+	keep := map[string]bool{}
+	for _, v := range []*Version{&inst.Version, inst.Previous} {
+		if v == nil {
+			continue
+		}
+		if d, err := tagDir(v.Tag); err == nil {
+			keep[d] = true
+		}
+	}
+
+	pkgDir := i.pkgDir(inst.Name)
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		logger.Warn("Could not clean %s: %v", pkgDir, err)
+		return
+	}
+	for _, e := range entries {
+		if keep[e.Name()] {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(pkgDir, e.Name())); err != nil {
+			logger.Warn("Could not clean %s: %v", e.Name(), err)
+		}
+	}
 }
 
 // Remove removes an installed package
@@ -258,6 +332,10 @@ func (i *Installer) Remove(ctx context.Context, name string) error {
 	// Remove from storage
 	if err := i.storage.Delete(name); err != nil {
 		return fmt.Errorf("remove from storage: %w", err)
+	}
+
+	if err := os.RemoveAll(i.pkgDir(name)); err != nil {
+		return fmt.Errorf("remove store: %w", err)
 	}
 
 	logger.Success("%s removed successfully", name)

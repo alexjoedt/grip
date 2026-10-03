@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -61,7 +62,12 @@ func (e *installerEnv) installer(src Source) *Installer {
 
 func (e *installerEnv) assertInstalled(t *testing.T, name, tag string) {
 	t.Helper()
-	fi, err := os.Stat(filepath.Join(e.cfg.BinDir, name))
+	link := filepath.Join(e.cfg.BinDir, name)
+	want := filepath.Join("..", "pkgs", name, tag, name)
+	if target, err := os.Readlink(link); err != nil || target != want {
+		t.Fatalf("bin/%s -> %q, %v; want symlink to %s", name, target, err, want)
+	}
+	fi, err := os.Stat(link)
 	if err != nil {
 		t.Fatalf("binary %s: %v", name, err)
 	}
@@ -74,6 +80,42 @@ func (e *installerEnv) assertInstalled(t *testing.T, name, tag string) {
 	}
 	if inst.Repo != "github.com/owner/grip-fixture-zz" || inst.Tag != tag {
 		t.Errorf("state entry = %s@%s, want github.com/owner/grip-fixture-zz@%s", inst.Repo, inst.Tag, tag)
+	}
+	if sum, err := calculateFileSHA256(filepath.Join(e.cfg.HomeDir, "pkgs", name, tag, name)); err != nil || inst.SHA256 != sum {
+		t.Errorf("state sha256 = %s, store file %s, %v", inst.SHA256, sum, err)
+	}
+	if inst.InstallPath != "" {
+		t.Errorf("installPath = %q, want empty", inst.InstallPath)
+	}
+}
+
+// assertStore checks that pkgs/<name> holds exactly the given tag dirs and
+// that state records previous.
+func (e *installerEnv) assertStore(t *testing.T, name, previous string, tags ...string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(e.cfg.HomeDir, "pkgs", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, en := range entries {
+		got = append(got, en.Name())
+	}
+	slices.Sort(got)
+	slices.Sort(tags)
+	if !slices.Equal(got, tags) {
+		t.Errorf("pkgs/%s = %v, want %v", name, got, tags)
+	}
+	inst, err := e.storage.Get(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotPrev string
+	if inst.Previous != nil {
+		gotPrev = inst.Previous.Tag
+	}
+	if gotPrev != previous {
+		t.Errorf("previous = %q, want %q", gotPrev, previous)
 	}
 }
 
@@ -165,14 +207,141 @@ func TestRemove(t *testing.T) {
 	if err := inst.Remove(context.Background(), "grip-fixture-zz"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.BinDir, "grip-fixture-zz")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(e.cfg.BinDir, "grip-fixture-zz")); !os.IsNotExist(err) {
 		t.Errorf("binary still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.HomeDir, "pkgs", "grip-fixture-zz")); !os.IsNotExist(err) {
+		t.Errorf("store dir still exists: %v", err)
 	}
 	e.assertEmptyState(t)
 
 	if err := inst.Remove(context.Background(), "unknown-zz"); err == nil {
 		t.Error("remove of unknown package succeeded")
 	}
+}
+
+func TestUpdateKeepsCurrentAndPrevious(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	install := func(tag string, force bool) {
+		t.Helper()
+		if err := e.installer(fakeSource{release: e.release(tag, "/ok")}).Install(ctx, InstallOptions{Repo: fixtureRepo, Force: force}); err != nil {
+			t.Fatalf("install %s: %v", tag, err)
+		}
+		e.assertInstalled(t, name, tag)
+	}
+
+	install("v1.0.0", false)
+	e.assertStore(t, name, "", "v1.0.0")
+
+	pkgDir := filepath.Join(e.cfg.HomeDir, "pkgs", name)
+	if err := os.MkdirAll(filepath.Join(pkgDir, "v0.1.0-crashed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, ".tmp-leftover"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	install("v1.1.0", true)
+	e.assertStore(t, name, "v1.0.0", "v1.0.0", "v1.1.0")
+
+	install("v1.1.0", true)
+	e.assertStore(t, name, "v1.0.0", "v1.0.0", "v1.1.0")
+
+	install("v1.2.0", true)
+	e.assertStore(t, name, "v1.1.0", "v1.1.0", "v1.2.0")
+
+	install("v1.0.0", true)
+	e.assertStore(t, name, "v1.2.0", "v1.0.0", "v1.2.0")
+}
+
+func TestUpdateConvertsV1Install(t *testing.T) {
+	const name = "grip-fixture-zz"
+	tests := map[string]func(e *installerEnv) string{
+		"regular file in bin":  func(e *installerEnv) string { return e.cfg.BinDir },
+		"foreign install path": func(e *installerEnv) string { return filepath.Join(e.cfg.HomeDir, "elsewhere") },
+	}
+	for tname, dir := range tests {
+		t.Run(tname, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			installPath := dir(e)
+			old := filepath.Join(installPath, name)
+			if err := os.MkdirAll(installPath, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(old, []byte("v1 binary"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			v1 := &Installation{Name: name, Repo: "github.com/" + fixtureRepo, Version: Version{Tag: "v0.9.0"}, InstallPath: installPath}
+			if err := e.storage.Save(v1); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Update(context.Background(), name); err != nil {
+				t.Fatal(err)
+			}
+			e.assertInstalled(t, name, "v1.0.0")
+			e.assertStore(t, name, "v0.9.0", "v1.0.0")
+			if installPath != e.cfg.BinDir {
+				if _, err := os.Lstat(old); !os.IsNotExist(err) {
+					t.Errorf("old binary still exists: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveForeignInstallPathFailsLoudly(t *testing.T) {
+	e := newInstallerEnv(t)
+	const name = "grip-fixture-zz"
+	dir := filepath.Join(e.cfg.HomeDir, "readonly")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if err := e.storage.Save(&Installation{Name: name, Repo: "github.com/" + fixtureRepo, InstallPath: dir}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.installer(fakeSource{}).Remove(context.Background(), name); err == nil {
+		t.Fatal("remove succeeded on a read-only install path")
+	}
+	if _, err := e.storage.Get(name); err != nil {
+		t.Errorf("state entry dropped after failed remove: %v", err)
+	}
+}
+
+func TestInstallPathConflict(t *testing.T) {
+	const name = "grip-fixture-zz"
+	e := newInstallerEnv(t)
+	outside := filepath.Join(e.cfg.HomeDir, "usr-bin")
+	for _, d := range []string{outside, e.cfg.BinDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inst := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")})
+
+	t.Setenv("PATH", outside)
+	if err := inst.Install(context.Background(), InstallOptions{Repo: fixtureRepo}); err == nil || !strings.Contains(err.Error(), "another source") {
+		t.Fatalf("install with %s in PATH err = %v, want conflict", outside, err)
+	}
+
+	t.Setenv("PATH", e.cfg.BinDir)
+	if err := inst.Install(context.Background(), InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatalf("install over leftover in grip bin: %v", err)
+	}
+	e.assertInstalled(t, name, "v1.0.0")
 }
 
 func TestInstallFailureLeavesNoState(t *testing.T) {
