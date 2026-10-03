@@ -13,7 +13,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func Command(app *cli.Command, storage *grip.Storage) {
+func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, error)) {
 	cmd := &cli.Command{
 		Name:  "ls",
 		Usage: "lists all installed executables by grip",
@@ -24,6 +24,10 @@ func Command(app *cli.Command, storage *grip.Storage) {
 			},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
+			_, storage, err := setup()
+			if err != nil {
+				return err
+			}
 			installations, err := storage.List()
 			if err != nil {
 				return err

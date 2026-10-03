@@ -12,7 +12,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage) {
+func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, error)) {
 	cmd := &cli.Command{
 		Name:        "remove",
 		Usage:       "removes an installed executable by grip",
@@ -30,6 +30,10 @@ func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage)
 			},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
+			installer, storage, err := setup()
+			if err != nil {
+				return err
+			}
 			if c.Bool("all") {
 				if !c.Bool("force") {
 					if !askForContinue() {

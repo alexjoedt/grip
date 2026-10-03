@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,43 +25,16 @@ var (
 )
 
 func main() {
-	// Create config
-	cfg, err := grip.DefaultConfig()
-	if err != nil {
-		logger.Fatal("Failed to load config: %v", err)
-	}
-
-	// Ensure directories exist
-	if err := cfg.EnsureDirs(); err != nil {
-		logger.Fatal("Failed to create directories: %v", err)
-	}
-
-	// Create storage
-	storage, err := grip.NewStorage(cfg.StorePath, cfg)
-	if err != nil {
-		logger.Fatal("Failed to initialize storage: %v", err)
-	}
-
-	// Create GitHub client
-	source := grip.NewGitHubSource()
-
-	// Create HTTP client optimized for downloading large binary files
-	httpClient := &http.Client{
-		Timeout: 2 * time.Minute, // Max timeout for large downloads
-		Transport: &http.Transport{
-			MaxIdleConns:        10,
-			MaxIdleConnsPerHost: 5,
-			IdleConnTimeout:     90 * time.Second,
-			DisableCompression:  true, // Don't decompress, we handle archives
-		},
-	}
-
-	// Create installer
-	installer := grip.NewInstaller(cfg, storage, source, httpClient)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	if err := newApp().Run(ctx, os.Args); err != nil {
+		logger.Error("%s", err.Error())
+		os.Exit(1)
+	}
+}
+
+func newApp() *cli.Command {
 	app := &cli.Command{
 		Name:    "grip",
 		Usage:   "grip [flags] <command>",
@@ -80,16 +54,40 @@ func main() {
 	}
 
 	versionCommand(app)
-	install.Command(app, installer)
-	update.Command(app, installer, storage, version)
-	list.Command(app, storage)
-	remove.Command(app, installer, storage)
+	install.Command(app, setup)
+	update.Command(app, setup, version)
+	list.Command(app, setup)
+	remove.Command(app, setup)
+	return app
+}
 
-	if err := app.Run(ctx, os.Args); err != nil {
-		logger.Error("%s", err.Error())
-		os.Exit(1)
+// setup creates the grip home and its dependencies. Commands call it from
+// their actions so that help and version touch nothing on disk.
+func setup() (*grip.Installer, *grip.Storage, error) {
+	cfg, err := grip.DefaultConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load config: %w", err)
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		return nil, nil, fmt.Errorf("create directories: %w", err)
+	}
+	storage, err := grip.NewStorage(cfg.StorePath, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize storage: %w", err)
 	}
 
+	// HTTP client optimized for downloading large binary files
+	httpClient := &http.Client{
+		Timeout: 2 * time.Minute, // Max timeout for large downloads
+		Transport: &http.Transport{
+			MaxIdleConns:        10,
+			MaxIdleConnsPerHost: 5,
+			IdleConnTimeout:     90 * time.Second,
+			DisableCompression:  true, // Don't decompress, we handle archives
+		},
+	}
+
+	return grip.NewInstaller(cfg, storage, grip.NewGitHubSource(), httpClient), storage, nil
 }
 
 func versionCommand(app *cli.Command) {

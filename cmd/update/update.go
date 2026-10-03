@@ -9,7 +9,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage, version string) {
+func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, error), version string) {
 	cmd := &cli.Command{
 		Name:  "update",
 		Usage: "updates an executable",
@@ -17,6 +17,11 @@ func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage,
 			name := c.Args().First()
 			if name == "" {
 				return fmt.Errorf("please provide the name of the package to update")
+			}
+
+			installer, storage, err := setup()
+			if err != nil {
+				return err
 			}
 
 			inst, err := storage.Get(name)
@@ -44,6 +49,10 @@ func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage,
 		Name:  "self-update",
 		Usage: "updates grip",
 		Action: func(ctx context.Context, _ *cli.Command) error {
+			installer, _, err := setup()
+			if err != nil {
+				return err
+			}
 			return grip.SelfUpdate(ctx, version, installer)
 		},
 	}
