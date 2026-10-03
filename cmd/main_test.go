@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,5 +40,29 @@ func TestShortBuild(t *testing.T) {
 		if got := shortBuild(in); got != want {
 			t.Errorf("shortBuild(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestVerifyExitCode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GRIP_HOME", home)
+	run := func(args ...string) error {
+		return newApp().Run(context.Background(), append([]string{"grip", "verify"}, args...))
+	}
+	if err := run(); err != nil {
+		t.Fatalf("verify on empty home: %v", err)
+	}
+	state := `{"version":2,"packages":{"gone":{"repo":"github.com/o/gone","tag":"v1","sha256":"abc"},"nohash":{"repo":"github.com/o/nohash","tag":"v1"}}}`
+	if err := os.WriteFile(filepath.Join(home, "grip.json"), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("nohash"); err != nil {
+		t.Errorf("verify nohash: %v, want success", err)
+	}
+	if err := run(); err == nil || !strings.Contains(err.Error(), "1 of 2") {
+		t.Errorf("verify all: %v, want 1 of 2 failed", err)
+	}
+	if err := run("unknown"); err == nil {
+		t.Error("verify unknown succeeded")
 	}
 }

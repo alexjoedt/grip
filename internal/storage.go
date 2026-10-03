@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -327,4 +329,65 @@ func calculateFileSHA256(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// Results of Storage.Verify.
+const (
+	VerifyOK       = "ok"
+	VerifyModified = "modified"
+	VerifyMissing  = "missing"
+	VerifyNoHash   = "no recorded hash"
+)
+
+// VerifyResult is the outcome of checking one installed package.
+type VerifyResult struct {
+	Name, Tag, Result, DigestSource string
+}
+
+// Failed reports whether the installed binary is missing or differs from
+// the recorded hash.
+func (r VerifyResult) Failed() bool {
+	return r.Result == VerifyModified || r.Result == VerifyMissing
+}
+
+// Verify compares the binary each named package's link resolves to with the
+// sha256 recorded for its current version; no names means all packages. It
+// takes no lock and changes nothing.
+func (s *Storage) Verify(names ...string) ([]VerifyResult, error) {
+	var insts []*Installation
+	if len(names) == 0 {
+		all, err := s.List()
+		if err != nil {
+			return nil, err
+		}
+		insts = all
+		slices.SortFunc(insts, func(a, b *Installation) int { return strings.Compare(a.Name, b.Name) })
+	}
+	for _, name := range names {
+		inst, err := s.Get(name)
+		if err != nil {
+			return nil, err
+		}
+		insts = append(insts, inst)
+	}
+
+	results := make([]VerifyResult, 0, len(insts))
+	for _, inst := range insts {
+		r := VerifyResult{Name: inst.Name, Tag: inst.Tag, DigestSource: inst.DigestSource, Result: VerifyNoHash}
+		if inst.SHA256 != "" {
+			sum, err := calculateFileSHA256(filepath.Join(s.InstallDir(inst), inst.Name))
+			switch {
+			case errors.Is(err, os.ErrNotExist):
+				r.Result = VerifyMissing
+			case err != nil:
+				return nil, fmt.Errorf("hash %s: %w", inst.Name, err)
+			case strings.EqualFold(sum, inst.SHA256):
+				r.Result = VerifyOK
+			default:
+				r.Result = VerifyModified
+			}
+		}
+		results = append(results, r)
+	}
+	return results, nil
 }

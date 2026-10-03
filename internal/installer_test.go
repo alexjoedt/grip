@@ -1100,3 +1100,66 @@ func TestUpdateArchiveTooLargeKeepsPrevious(t *testing.T) {
 		t.Errorf("home = %v, want %v (workspace left behind?)", got, homeBefore)
 	}
 }
+
+func TestVerify(t *testing.T) {
+	const name = "grip-fixture-zz"
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	for _, inst := range []*Installation{
+		{Name: "nohash-zz", Repo: "github.com/o/nohash-zz", Version: Version{Tag: "v1"}},
+		{Name: "gone-zz", Repo: "github.com/o/gone-zz", Version: Version{Tag: "v2", SHA256: "abc", DigestSource: DigestSourceAPI}},
+	} {
+		if err := e.storage.Save(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unlock, err := e.storage.Lock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	stateBefore, _ := os.ReadFile(filepath.Join(e.cfg.HomeDir, "grip.json"))
+
+	check := func(want ...VerifyResult) {
+		t.Helper()
+		got, err := e.storage.Verify()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("Verify() = %+v\nwant %+v", got, want)
+		}
+	}
+	check(
+		VerifyResult{"gone-zz", "v2", VerifyMissing, DigestSourceAPI},
+		VerifyResult{name, "v1.0.0", VerifyOK, DigestSourceNone},
+		VerifyResult{"nohash-zz", "v1", VerifyNoHash, ""},
+	)
+
+	store := filepath.Join(e.cfg.HomeDir, "pkgs", name, "v1.0.0", name)
+	b, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b[len(b)-1] ^= 0xff
+	if err := os.WriteFile(store, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.storage.Verify(name)
+	if err != nil || len(got) != 1 || got[0].Result != VerifyModified || !got[0].Failed() {
+		t.Errorf("Verify(%s) = %+v, %v; want modified", name, got, err)
+	}
+
+	if _, err := e.storage.Verify("unknown-zz"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Verify(unknown) err = %v, want ErrNotFound", err)
+	}
+	if stateAfter, _ := os.ReadFile(filepath.Join(e.cfg.HomeDir, "grip.json")); !bytes.Equal(stateBefore, stateAfter) {
+		t.Error("Verify changed the state file")
+	}
+	if got := dirNames(t, filepath.Join(e.cfg.HomeDir, "pkgs", name)); !slices.Equal(got, []string{"v1.0.0"}) {
+		t.Errorf("store = %v, want [v1.0.0]", got)
+	}
+}
