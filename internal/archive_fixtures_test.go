@@ -5,6 +5,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"debug/elf"
+	"debug/macho"
+	"encoding/binary"
 	"io"
 	"os"
 	"os/exec"
@@ -90,29 +93,46 @@ func createMaliciousZip(t *testing.T, entryName string) []byte {
 
 // ==================== unpack.go direct tests ====================
 
-// machOBinary returns a minimal 64-bit Mach-O header that filetype.Match detects
-// as "application/x-mach-binary".
-func machOBinary() []byte {
-	return []byte{
-		0xcf, 0xfa, 0xed, 0xfe, // MH_MAGIC_64 (little-endian)
-		0x07, 0x00, 0x00, 0x01, // CPU_TYPE_X86_64
-		0x03, 0x00, 0x00, 0x00, // CPU_SUBTYPE_X86_64_ALL
-		0x02, 0x00, 0x00, 0x00, // MH_EXECUTE
-		0x00, 0x00, 0x00, 0x00, // ncmds
-		0x00, 0x00, 0x00, 0x00, // sizeofcmds
-		0x00, 0x00, 0x00, 0x00, // flags
-		0x00, 0x00, 0x00, 0x00, // reserved
-	}
+// darwinAmd64 matches the x86-64 Mach-O executables of the archive fixtures.
+var darwinAmd64 = binaryQuery{OS: "darwin", Arch: "amd64"}
+
+// machOBinary returns a minimal 64-bit x86-64 Mach-O executable header.
+func machOBinary() []byte { return machOFor(macho.CpuAmd64, macho.TypeExec) }
+
+// machOFor returns a minimal 64-bit little-endian Mach-O header.
+func machOFor(cpu macho.Cpu, typ macho.Type) []byte {
+	b := make([]byte, 32)
+	binary.LittleEndian.PutUint32(b[0:], macho.Magic64)
+	binary.LittleEndian.PutUint32(b[4:], uint32(cpu))
+	binary.LittleEndian.PutUint32(b[12:], uint32(typ))
+	return b
 }
 
-// elfBinary returns a minimal 64-bit little-endian ELF header for x86-64.
-func elfBinary() []byte {
+// fatBinary returns a universal Mach-O holding one executable per cpu.
+func fatBinary(cpus ...macho.Cpu) []byte {
+	head := make([]byte, 8+20*len(cpus))
+	binary.BigEndian.PutUint32(head[0:], macho.MagicFat)
+	binary.BigEndian.PutUint32(head[4:], uint32(len(cpus)))
+	var body []byte
+	for i, cpu := range cpus {
+		thin := machOFor(cpu, macho.TypeExec)
+		e := head[8+20*i:]
+		binary.BigEndian.PutUint32(e[0:], uint32(cpu))
+		binary.BigEndian.PutUint32(e[8:], uint32(len(head)+len(body)))
+		binary.BigEndian.PutUint32(e[12:], uint32(len(thin)))
+		body = append(body, thin...)
+	}
+	return append(head, body...)
+}
+
+// elfFor returns a minimal 64-bit little-endian ELF header.
+func elfFor(m elf.Machine, typ elf.Type) []byte {
 	b := make([]byte, 64)
 	copy(b, []byte{0x7f, 'E', 'L', 'F', 2, 1, 1})
-	b[16] = 2    // ET_EXEC
-	b[18] = 0x3e // EM_X86_64
-	b[20] = 1    // EV_CURRENT
-	b[52] = 64   // e_ehsize
+	binary.LittleEndian.PutUint16(b[16:], uint16(typ))
+	binary.LittleEndian.PutUint16(b[18:], uint16(m))
+	b[20] = 1  // EV_CURRENT
+	b[52] = 64 // e_ehsize
 	return b
 }
 

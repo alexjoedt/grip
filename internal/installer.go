@@ -112,6 +112,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 
 	asset.Tag = release.Tag
 	asset.Alias = opts.Alias
+	if existing != nil {
+		asset.BinOverride = existing.BinOverride
+	}
 
 	sha256Hash, err := i.installAsset(ctx, asset, filepath.Join(i.pkgDir(installName), dir), installName)
 	if err != nil {
@@ -232,7 +235,12 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 	}
 
 	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
-	binPath, err := Unpack(archivePath, ws.UnpackDir())
+	binPath, err := Unpack(archivePath, ws.UnpackDir(), binaryQuery{
+		OS:       asset.OS,
+		Arch:     asset.Arch,
+		Override: asset.BinOverride,
+		Names:    []string{asset.BinaryName(), asset.RepoName},
+	})
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("unpack: %w", err)

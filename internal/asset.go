@@ -18,6 +18,7 @@ type Asset struct {
 	Tag         string
 	RepoName    string
 	RepoOwner   string
+	BinOverride string
 }
 
 // BinaryName returns the name for the installed binary

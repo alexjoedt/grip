@@ -34,6 +34,7 @@ func newInstallerEnv(t *testing.T) *installerEnv {
 	cfg.HomeDir = dir
 	cfg.BinDir = filepath.Join(dir, "bin")
 	cfg.TempDir = dir
+	cfg.OS, cfg.Arch = darwinAmd64.OS, darwinAmd64.Arch
 	storage, err := NewStorage(filepath.Join(dir, "grip.json"), cfg)
 	if err != nil {
 		t.Fatal(err)

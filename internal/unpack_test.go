@@ -5,9 +5,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"debug/elf"
+	"debug/macho"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +38,7 @@ func TestUnpacker(t *testing.T) {
 
 		// Unpack
 		destDir := filepath.Join(tempDir, "output")
-		execPath, err := Unpack(archivePath, destDir)
+		execPath, err := Unpack(archivePath, destDir, darwinAmd64)
 
 		assert.NoError(t, err)
 		assert.NotEmpty(t, execPath)
@@ -53,7 +56,7 @@ func TestUnpacker(t *testing.T) {
 		require.NoError(t, os.WriteFile(archivePath, []byte("not an archive"), 0644))
 
 		destDir := filepath.Join(tempDir, "output")
-		_, err := Unpack(archivePath, destDir)
+		_, err := Unpack(archivePath, destDir, darwinAmd64)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported archive format")
@@ -91,7 +94,7 @@ func TestUnpackerZipSlip(t *testing.T) {
 			require.NoError(t, os.WriteFile(archivePath, data, 0644))
 
 			destDir := filepath.Join(tempDir, "output")
-			_, err := Unpack(archivePath, destDir)
+			_, err := Unpack(archivePath, destDir, darwinAmd64)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "escapes")
 			assert.NoFileExists(t, filepath.Join(tempDir, "outside.txt"))
@@ -107,7 +110,7 @@ func TestUnpackerZipSlip(t *testing.T) {
 			require.NoError(t, os.WriteFile(archivePath, data, 0644))
 
 			destDir := filepath.Join(tempDir, "output")
-			_, err := Unpack(archivePath, destDir)
+			_, err := Unpack(archivePath, destDir, darwinAmd64)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "escapes")
 			assert.NoFileExists(t, filepath.Join(tempDir, "outside.txt"))
@@ -384,7 +387,7 @@ func TestUnpackerNoExecutableFound(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "noexec.tar.gz")
 	require.NoError(t, os.WriteFile(archivePath, buf.Bytes(), 0o644))
 
-	_, err = Unpack(archivePath, filepath.Join(tempDir, "out"))
+	_, err = Unpack(archivePath, filepath.Join(tempDir, "out"), darwinAmd64)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no executable found in archive")
 }
@@ -397,7 +400,7 @@ func TestUnpackerUnpackZip(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "test.zip")
 	require.NoError(t, os.WriteFile(archivePath, createTestZipWithExec(t), 0o644))
 
-	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
+	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"), darwinAmd64)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, execPath)
 	assert.FileExists(t, execPath)
@@ -411,7 +414,7 @@ func TestUnpackerUnpackTarXz(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "test.tar.xz")
 	require.NoError(t, os.WriteFile(archivePath, createTestTarXz(t), 0o644))
 
-	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
+	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"), darwinAmd64)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, execPath)
 	assert.FileExists(t, execPath)
@@ -426,7 +429,7 @@ func TestUnpackerUnpackTarBz2(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "test.tar.bz2")
 	require.NoError(t, os.WriteFile(archivePath, createTestTarBz2(t), 0o644))
 
-	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"))
+	execPath, err := Unpack(archivePath, filepath.Join(tempDir, "out"), darwinAmd64)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, execPath)
 	assert.FileExists(t, execPath)
@@ -529,4 +532,98 @@ func TestUnpackSkipsLinks(t *testing.T) {
 		_, err = os.Lstat(filepath.Join(dest, "sym"))
 		assert.True(t, os.IsNotExist(err))
 	})
+}
+
+func TestExecutableFor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content []byte
+		target  string
+		want    bool
+	}{
+		{"elf amd64 on linux/amd64", elfFor(elf.EM_X86_64, elf.ET_EXEC), "linux/amd64", true},
+		{"elf pie on linux/amd64", elfFor(elf.EM_X86_64, elf.ET_DYN), "linux/amd64", true},
+		{"elf arm64 on linux/arm64", elfFor(elf.EM_AARCH64, elf.ET_EXEC), "linux/arm64", true},
+		{"elf amd64 on linux/arm64", elfFor(elf.EM_X86_64, elf.ET_EXEC), "linux/arm64", false},
+		{"elf object file", elfFor(elf.EM_X86_64, elf.ET_REL), "linux/amd64", false},
+		{"mach-o on linux", machOFor(macho.CpuAmd64, macho.TypeExec), "linux/amd64", false},
+		{"mach-o arm64 on darwin/arm64", machOFor(macho.CpuArm64, macho.TypeExec), "darwin/arm64", true},
+		{"mach-o amd64 on darwin/arm64", machOFor(macho.CpuAmd64, macho.TypeExec), "darwin/arm64", false},
+		{"mach-o dylib", machOFor(macho.CpuArm64, macho.TypeDylib), "darwin/arm64", false},
+		{"universal on darwin/arm64", fatBinary(macho.CpuAmd64, macho.CpuArm64), "darwin/arm64", true},
+		{"universal amd64 only on darwin/arm64", fatBinary(macho.CpuAmd64), "darwin/arm64", false},
+		{"elf on darwin", elfFor(elf.EM_AARCH64, elf.ET_EXEC), "darwin/arm64", false},
+		{"script on linux", []byte("#!/bin/sh\necho hi\n"), "linux/amd64", false},
+		{"script on darwin", []byte("#!/bin/sh\necho hi\n"), "darwin/arm64", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(t.TempDir(), "bin")
+			require.NoError(t, os.WriteFile(p, tt.content, 0o755))
+			goos, goarch, _ := strings.Cut(tt.target, "/")
+			assert.Equal(t, tt.want, executableFor(p, goos, goarch))
+		})
+	}
+}
+
+func TestSelectBinary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		cands    []string
+		override string
+		names    []string
+		want     string
+		wantErr  string
+	}{
+		{"none", nil, "", []string{"tool"}, "", "no executable found"},
+		{"single", []string{"dir/rg"}, "", []string{"ripgrep"}, "dir/rg", ""},
+		{"install name wins", []string{"tool", "tool-daemon"}, "", []string{"tool", "repo"}, "tool", ""},
+		{"repository name second", []string{"uv", "uvx"}, "", []string{"myuv", "uv"}, "uv", ""},
+		{"no name matches", []string{"a", "b"}, "", []string{"tool"}, "", "several executables match: a, b"},
+		{"duplicate base name", []string{"x/tool", "y/tool"}, "", []string{"tool"}, "", "several executables match"},
+		{"override wins", []string{"tool", "helper"}, "helper", []string{"tool"}, "helper", ""},
+		{"override misses single", []string{"tool"}, "other", []string{"tool"}, "", `bin override "other" names no single executable in archive: tool`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := selectBinary(tt.cands, tt.override, tt.names...)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFindBinary(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"pkg/age":        elfFor(elf.EM_X86_64, elf.ET_EXEC),
+		"pkg/age-keygen": elfFor(elf.EM_X86_64, elf.ET_EXEC),
+		"pkg/age-arm":    elfFor(elf.EM_AARCH64, elf.ET_EXEC),
+		"pkg/install.sh": []byte("#!/bin/sh\n"),
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, content, 0o755))
+	}
+
+	got, err := findBinary(dir, binaryQuery{OS: "linux", Arch: "amd64", Names: []string{"myage", "age"}})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "pkg/age"), got)
+
+	_, err = findBinary(dir, binaryQuery{OS: "linux", Arch: "amd64", Names: []string{"x"}})
+	require.ErrorIs(t, err, ErrAmbiguousBinary)
+	assert.ErrorContains(t, err, "pkg/age, pkg/age-keygen")
 }

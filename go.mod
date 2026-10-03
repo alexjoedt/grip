@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/google/go-github/v56 v56.0.0
-	github.com/h2non/filetype v1.1.3
 	github.com/k0kubun/go-ansi v0.0.0-20180517002512-3bf9e2903213
 	github.com/minio/selfupdate v0.6.0
 	github.com/schollz/progressbar/v3 v3.19.1

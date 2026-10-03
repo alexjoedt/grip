@@ -5,15 +5,17 @@ import (
 	"archive/zip"
 	"compress/bzip2"
 	"compress/gzip"
+	"debug/elf"
+	"debug/macho"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/alexjoedt/grip/internal/logger"
-	"github.com/h2non/filetype"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 )
@@ -42,9 +44,9 @@ var orderedExts = []string{
 	".bz2",
 }
 
-// Unpack extracts an archive file to the destination directory.
-// Returns the path to the executable binary found in the archive.
-func Unpack(archivePath, destDir string) (string, error) {
+// Unpack extracts an archive file to the destination directory and returns
+// the path of the executable selected by q.
+func Unpack(archivePath, destDir string, q binaryQuery) (string, error) {
 	archiveInfo, err := os.Stat(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("stat archive: %w", err)
@@ -69,11 +71,10 @@ func Unpack(archivePath, destDir string) (string, error) {
 	}
 	fmt.Println() // new line after progress bar
 
-	execPath, err := findExecutable(destDir)
+	execPath, err := findBinary(destDir, q)
 	if err != nil {
 		return "", fmt.Errorf("find executable: %w", err)
 	}
-
 	return execPath, nil
 }
 
@@ -99,66 +100,128 @@ func getUnpackFn(filename string) (string, unpackFn, error) {
 	return "", nil, fmt.Errorf("unsupported archive format: %s", filename)
 }
 
-// findExecutable searches for an executable binary in the directory tree.
-func findExecutable(dir string) (string, error) {
-	fileTypes := map[string]bool{
-		"application/x-mach-binary": true,
-		"application/x-executable":  true,
-	}
+// binaryQuery says which executable to take from an unpacked archive.
+type binaryQuery struct {
+	OS, Arch string
+	Override string   // bin override; must name a candidate
+	Names    []string // install name first, then repository name
+}
 
-	var executablePath string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+// findBinary returns the executable in dir selected by q. Candidates are
+// regular ELF (Mach-O on darwin) executables for q.OS and q.Arch.
+func findBinary(dir string, q binaryQuery) (string, error) {
+	var cands []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
-		if !info.IsDir() {
-			mimeType, err := detectFileType(path)
+		if d.Type().IsRegular() && executableFor(path, q.OS, q.Arch) {
+			rel, err := filepath.Rel(dir, path)
 			if err != nil {
-				// Continue searching on error
-				return nil
+				return err
 			}
-
-			if fileTypes[mimeType] {
-				executablePath = path
-				return filepath.SkipAll // Stop walking
-			}
+			cands = append(cands, rel)
 		}
-
 		return nil
 	})
-
 	if err != nil {
 		return "", err
 	}
+	logger.Info("binary candidates for %s/%s: %s", q.OS, q.Arch, strings.Join(cands, ", "))
 
-	if executablePath == "" {
-		return "", errors.New("no executable found in archive")
+	bin, err := selectBinary(cands, q.Override, q.Names...)
+	if err != nil {
+		return "", err
 	}
-
-	return executablePath, nil
+	if base := filepath.Base(bin); len(q.Names) > 0 && !strings.HasPrefix(base, q.Names[0]) {
+		logger.Println("binary in archive is %q; use --alias %s", base, base)
+	}
+	return filepath.Join(dir, bin), nil
 }
 
-// detectFileType detects the MIME type of a file.
-func detectFileType(path string) (string, error) {
-	f, err := os.Open(path)
+// selectBinary picks one of cands, paths relative to the archive root. The
+// candidate whose base name equals override wins; without override a single
+// candidate wins, else the one named like the first of names that matches.
+func selectBinary(cands []string, override string, names ...string) (string, error) {
+	if len(cands) == 0 {
+		return "", errors.New("no executable found in archive")
+	}
+	list := strings.Join(cands, ", ")
+	if override != "" {
+		if c := byBaseName(cands, override); len(c) == 1 {
+			logger.Info("binary %s: matches bin override", c[0])
+			return c[0], nil
+		}
+		return "", fmt.Errorf("bin override %q names no single executable in archive: %s", override, list)
+	}
+	if len(cands) == 1 {
+		logger.Info("binary %s: only candidate", cands[0])
+		return cands[0], nil
+	}
+	for _, n := range names {
+		if c := byBaseName(cands, n); len(c) == 1 {
+			logger.Info("binary %s: base name equals %s", c[0], n)
+			return c[0], nil
+		}
+	}
+	return "", fmt.Errorf("%w: %s", ErrAmbiguousBinary, list)
+}
+
+func byBaseName(cands []string, name string) []string {
+	var out []string
+	for _, c := range cands {
+		if filepath.Base(c) == name {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+var elfMachines = map[string]elf.Machine{
+	"amd64": elf.EM_X86_64,
+	"arm64": elf.EM_AARCH64,
+	"386":   elf.EM_386,
+	"arm":   elf.EM_ARM,
+}
+
+var machoCPUs = map[string]macho.Cpu{
+	"amd64": macho.CpuAmd64,
+	"arm64": macho.CpuArm64,
+}
+
+// executableFor reports whether path is an executable for goos and goarch:
+// Mach-O (thin or universal) on darwin, ELF elsewhere. Unparsable files are not.
+func executableFor(path, goos, goarch string) bool {
+	if goos == "darwin" {
+		if f, err := macho.Open(path); err == nil {
+			defer f.Close()
+			return machoFor(f.FileHeader, goarch)
+		}
+		ff, err := macho.OpenFat(path)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = ff.Close() }()
+		for _, a := range ff.Arches {
+			if machoFor(a.FileHeader, goarch) {
+				return true
+			}
+		}
+		return false
+	}
+
+	f, err := elf.Open(path)
 	if err != nil {
-		return "", err
+		return false
 	}
 	defer f.Close()
+	m, ok := elfMachines[goarch]
+	return ok && f.Machine == m && (f.Type == elf.ET_EXEC || f.Type == elf.ET_DYN)
+}
 
-	buffer := make([]byte, 261)
-	n, err := f.Read(buffer)
-	if err != nil && err != io.EOF {
-		return "", err
-	}
-
-	kind, err := filetype.Match(buffer[:n])
-	if err != nil {
-		return "", err
-	}
-
-	return kind.MIME.Value, nil
+func machoFor(h macho.FileHeader, goarch string) bool {
+	cpu, ok := machoCPUs[goarch]
+	return ok && h.Cpu == cpu && h.Type == macho.TypeExec
 }
 
 // fileMode maps an archive mode to 0755 when any exec bit is set, else 0644,

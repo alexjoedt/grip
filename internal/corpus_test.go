@@ -3,6 +3,7 @@ package grip
 import (
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,7 +54,8 @@ func loadCorpus(t *testing.T) []corpusEntry {
 }
 
 // TestCorpus gates asset selection on real release asset lists: per target at
-// least 95% correct and no wrong asset. The binary hit rate only logs until 03-05.
+// least 95% correct and no wrong asset; the binary inside the linux/amd64
+// archives at least 95% correct.
 func TestCorpus(t *testing.T) {
 	corpus := loadCorpus(t)
 
@@ -93,25 +95,21 @@ func TestCorpus(t *testing.T) {
 			continue
 		}
 		listings++
-		dir := t.TempDir()
+		var cands []string
 		for _, f := range e.Files {
-			content := []byte("not a binary\n")
 			if f.ELF {
-				content = elfBinary()
+				cands = append(cands, f.Path)
 			}
-			p := filepath.Join(dir, filepath.FromSlash(f.Path))
-			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-			require.NoError(t, os.WriteFile(p, content, 0o755))
 		}
-		got, err := findExecutable(dir)
-		if err == nil {
-			got, err = filepath.Rel(dir, got)
-		}
-		if err == nil && filepath.ToSlash(got) == e.Bin {
+		got, err := selectBinary(cands, "", path.Base(e.Repo))
+		if err == nil && got == e.Bin {
 			hits++
 			continue
 		}
 		t.Logf("binary %s: got %q (%v), want %s", e.Repo, got, err, e.Bin)
 	}
 	t.Logf("binary linux/amd64: %d of %d listings correct", hits, listings)
+	if hits*100 < 95*listings {
+		t.Errorf("binary linux/amd64: %d of %d correct, want at least 95%%", hits, listings)
+	}
 }
