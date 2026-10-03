@@ -2,16 +2,17 @@ package remove
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	grip "github.com/alexjoedt/grip/internal"
 	"github.com/alexjoedt/grip/internal/logger"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
-func Command(app *cli.App, installer *grip.Installer, storage *grip.Storage) {
+func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage) {
 	cmd := &cli.Command{
 		Name:        "remove",
 		Usage:       "removes an installed executable by grip",
@@ -28,7 +29,7 @@ func Command(app *cli.App, installer *grip.Installer, storage *grip.Storage) {
 				Usage:   "forces remove without confirmation",
 			},
 		},
-		Action: func(c *cli.Context) error {
+		Action: func(_ context.Context, c *cli.Command) error {
 			if c.Bool("all") {
 				if !c.Bool("force") {
 					if !askForContinue() {

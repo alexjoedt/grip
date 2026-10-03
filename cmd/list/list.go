@@ -1,6 +1,7 @@
 package list
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,10 +10,10 @@ import (
 	"text/tabwriter"
 
 	grip "github.com/alexjoedt/grip/internal"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
-func Command(app *cli.App, storage *grip.Storage) {
+func Command(app *cli.Command, storage *grip.Storage) {
 	cmd := &cli.Command{
 		Name:  "ls",
 		Usage: "lists all installed executables by grip",
@@ -22,7 +23,7 @@ func Command(app *cli.App, storage *grip.Storage) {
 				Usage: "filters installed executables (format: field=regex)",
 			},
 		},
-		Action: func(c *cli.Context) error {
+		Action: func(_ context.Context, c *cli.Command) error {
 			installations, err := storage.List()
 			if err != nil {
 				return err

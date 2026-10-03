@@ -6,14 +6,14 @@ import (
 
 	grip "github.com/alexjoedt/grip/internal"
 	"github.com/alexjoedt/grip/internal/logger"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
-func Command(ctx context.Context, app *cli.App, installer *grip.Installer, storage *grip.Storage, cfg *grip.Config) {
+func Command(app *cli.Command, installer *grip.Installer, storage *grip.Storage, version string) {
 	cmd := &cli.Command{
 		Name:  "update",
 		Usage: "updates an executable",
-		Action: func(c *cli.Context) error {
+		Action: func(ctx context.Context, c *cli.Command) error {
 			name := c.Args().First()
 			if name == "" {
 				return fmt.Errorf("please provide the name of the package to update")
@@ -43,8 +43,8 @@ func Command(ctx context.Context, app *cli.App, installer *grip.Installer, stora
 	selfCmd := &cli.Command{
 		Name:  "self-update",
 		Usage: "updates grip",
-		Action: func(c *cli.Context) error {
-			return grip.SelfUpdate(ctx, app.Version, installer)
+		Action: func(ctx context.Context, _ *cli.Command) error {
+			return grip.SelfUpdate(ctx, version, installer)
 		},
 	}
 

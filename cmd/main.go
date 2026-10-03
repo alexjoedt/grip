@@ -14,7 +14,7 @@ import (
 	"github.com/alexjoedt/grip/cmd/update"
 	grip "github.com/alexjoedt/grip/internal"
 	"github.com/alexjoedt/grip/internal/logger"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 var (
@@ -61,7 +61,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	app := &cli.App{
+	app := &cli.Command{
 		Name:    "grip",
 		Usage:   "grip [flags] <command>",
 		Version: version,
@@ -71,33 +71,33 @@ func main() {
 				Usage: "enable verbose output",
 			},
 		},
-		Before: func(ctx *cli.Context) error {
-			if ctx.Bool("verbose") {
+		Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
+			if c.Bool("verbose") {
 				logger.SetVerbose(true)
 			}
-			return nil
+			return ctx, nil
 		},
 	}
 
 	versionCommand(app)
-	install.Command(ctx, app, installer)
-	update.Command(ctx, app, installer, storage, cfg)
+	install.Command(app, installer)
+	update.Command(app, installer, storage, version)
 	list.Command(app, storage)
 	remove.Command(app, installer, storage)
 
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(ctx, os.Args); err != nil {
 		logger.Error("%s", err.Error())
 		os.Exit(1)
 	}
 
 }
 
-func versionCommand(app *cli.App) {
+func versionCommand(app *cli.Command) {
 	cmd := &cli.Command{
 		Name:        "version",
 		Usage:       "prints the version of grip",
 		Description: "prints the version of grip",
-		Action: func(ctx *cli.Context) error {
+		Action: func(context.Context, *cli.Command) error {
 			logger.Println("grip - Installing effortlessly single-executable releases from GitHub projects")
 			logger.Println("%s", version)
 			logger.Println("%s", build[:8])

@@ -4,10 +4,10 @@ import (
 	"context"
 
 	grip "github.com/alexjoedt/grip/internal"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
-func Command(ctx context.Context, app *cli.App, installer *grip.Installer) {
+func Command(app *cli.Command, installer *grip.Installer) {
 	cmd := &cli.Command{
 		Name:  "install",
 		Usage: "install an executable from a GitHub release",
@@ -28,7 +28,7 @@ func Command(ctx context.Context, app *cli.App, installer *grip.Installer) {
 				Usage:   "alias for the executable",
 			},
 		},
-		Action: func(c *cli.Context) error {
+		Action: func(ctx context.Context, c *cli.Command) error {
 			opts := grip.InstallOptions{
 				Repo:  c.Args().First(),
 				Tag:   c.String("tag"),
