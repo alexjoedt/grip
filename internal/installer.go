@@ -52,10 +52,11 @@ type InstallOptions struct {
 
 // Install installs a package from GitHub
 func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
-	owner, name, err := ParseRepoPath(opts.Repo)
+	repo, err := ParseRepo(opts.Repo)
 	if err != nil {
 		return err
 	}
+	owner, name := repo.Owner, repo.Name
 
 	// Use alias as name if provided
 	installName := name
@@ -64,7 +65,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 
 	// Check if already installed
-	existing, err := i.storage.GetByRepo(opts.Repo)
+	existing, err := i.storage.GetByRepo(repo)
 	if err == nil && !opts.Force {
 		return fmt.Errorf("%s version %s is already installed", existing.Name, existing.Tag)
 	}
@@ -113,7 +114,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	inst := &Installation{
 		Name:        installName,
 		Alias:       opts.Alias,
-		Repo:        opts.Repo,
+		Repo:        repo.String(),
 		Tag:         asset.Tag,
 		SHA256:      sha256Hash,
 		InstalledAt: now,

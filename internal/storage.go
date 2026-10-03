@@ -78,15 +78,16 @@ func (s *Storage) Get(name string) (*Installation, error) {
 	return inst, nil
 }
 
-// GetByRepo retrieves installation by repository path
-func (s *Storage) GetByRepo(repo string) (*Installation, error) {
+// GetByRepo retrieves installation by repository identity.
+// Stored entries are normalized on comparison, so v1 URL spellings match.
+func (s *Storage) GetByRepo(repo Repo) (*Installation, error) {
 	data, err := s.load()
 	if err != nil {
 		return nil, err
 	}
 
 	for _, inst := range data {
-		if inst.Repo == repo {
+		if r, err := ParseRepo(inst.Repo); err == nil && r == repo {
 			return inst, nil
 		}
 	}

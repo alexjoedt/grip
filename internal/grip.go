@@ -28,10 +28,11 @@ func SelfUpdate(ctx context.Context, version string, installer *Installer) error
 		return fmt.Errorf("installer: HTTP client is required")
 	}
 
-	owner, name, err := ParseRepoPath(repository)
+	repo, err := ParseRepo(repository)
 	if err != nil {
 		return err
 	}
+	owner, name := repo.Owner, repo.Name
 
 	// Fetch latest release
 	release, err := installer.ghClient.GetLatestRelease(ctx, owner, name)
