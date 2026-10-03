@@ -76,14 +76,14 @@ func setup() (*grip.Installer, *grip.Storage, error) {
 		return nil, nil, fmt.Errorf("initialize storage: %w", err)
 	}
 
-	// HTTP client optimized for downloading large binary files
+	// No overall timeout: Download aborts on a stall instead.
 	httpClient := &http.Client{
-		Timeout: 2 * time.Minute, // Max timeout for large downloads
 		Transport: &http.Transport{
-			MaxIdleConns:        10,
-			MaxIdleConnsPerHost: 5,
-			IdleConnTimeout:     90 * time.Second,
-			DisableCompression:  true, // Don't decompress, we handle archives
+			ResponseHeaderTimeout: 30 * time.Second,
+			MaxIdleConns:          10,
+			MaxIdleConnsPerHost:   5,
+			IdleConnTimeout:       90 * time.Second,
+			DisableCompression:    true, // Don't decompress, we handle archives
 		},
 	}
 

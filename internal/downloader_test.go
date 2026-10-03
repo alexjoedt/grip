@@ -1,16 +1,20 @@
 package grip
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -105,7 +109,7 @@ func TestDownloader(t *testing.T) {
 			defer os.RemoveAll(destDir)
 
 			ctx := context.Background()
-			sum, err := Download(ctx, httpClient, tc.downloadURL, destDir, tc.filename)
+			sum, err := Download(ctx, httpClient, tc.downloadURL, destDir, tc.filename, 0)
 
 			if tc.expectError {
 				assert.Error(t, err)
@@ -126,5 +130,84 @@ func TestDownloader(t *testing.T) {
 
 			mockTransport.AssertExpectations(t)
 		})
+	}
+}
+
+func TestDownloadBounds(t *testing.T) {
+	defer func(d time.Duration) { stallTimeout = d }(stallTimeout)
+	stallTimeout = 200 * time.Millisecond
+
+	chunk := []byte("0123456789")
+	tests := map[string]struct {
+		size    int64
+		handler http.HandlerFunc
+		wantErr string
+	}{
+		"slow but steady": {size: 100, handler: func(w http.ResponseWriter, _ *http.Request) {
+			for range 10 {
+				_, _ = w.Write(chunk)
+				w.(http.Flusher).Flush()
+				time.Sleep(50 * time.Millisecond)
+			}
+		}},
+		"stalled": {handler: func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(chunk)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		}, wantErr: "stalled"},
+		"stalled before headers": {handler: func(_ http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		}, wantErr: "stalled"},
+		"exceeds declared size": {size: 5, handler: func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(bytes.Repeat(chunk, 10))
+		}, wantErr: "exceeds declared size"},
+		"truncated": {size: 100, handler: func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(chunk)
+		}, wantErr: "truncated"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(tt.handler)
+			defer srv.Close()
+			dir := t.TempDir()
+
+			_, err := Download(context.Background(), srv.Client(), srv.URL, dir, "asset", tt.size)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "asset")); !os.IsNotExist(err) {
+				t.Errorf("partial file left behind: %v", err)
+			}
+		})
+	}
+}
+
+func TestDownloadCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	start := time.Now()
+	_, err := Download(ctx, srv.Client(), srv.URL, dir, "asset", 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("cancel took %s", d)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "asset")); !os.IsNotExist(err) {
+		t.Errorf("partial file left behind: %v", err)
 	}
 }

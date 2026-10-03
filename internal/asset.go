@@ -18,6 +18,7 @@ type Asset struct {
 	Arch        string
 	DownloadURL string
 	Digest      string // published "<algo>:<hex>", may be empty
+	Size        int64  // declared size, 0 when unknown
 	Tag         string
 	RepoName    string
 	RepoOwner   string
@@ -100,6 +101,7 @@ func parseAsset(assets []ReleaseAsset, cfg *Config, repoOwner, repoName, pattern
 				Arch:        cfg.Arch,
 				DownloadURL: matched[0].URL,
 				Digest:      matched[0].Digest,
+				Size:        matched[0].Size,
 				RepoOwner:   repoOwner,
 				RepoName:    repoName,
 				AnyArch:     true,
@@ -137,6 +139,7 @@ func parseAsset(assets []ReleaseAsset, cfg *Config, repoOwner, repoName, pattern
 		Arch:        cfg.Arch,
 		DownloadURL: chosen.URL,
 		Digest:      chosen.Digest,
+		Size:        chosen.Size,
 		RepoOwner:   repoOwner,
 		RepoName:    repoName,
 	}, nil

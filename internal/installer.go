@@ -314,7 +314,7 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset, pinned 
 		}
 	}
 
-	sum, err := Download(ctx, i.httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name)
+	sum, err := Download(ctx, i.httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name, asset.Size)
 	if err != nil {
 		cleanup()
 		return "", Version{}, nil, fmt.Errorf("download: %w", err)
