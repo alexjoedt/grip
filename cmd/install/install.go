@@ -9,14 +9,10 @@ import (
 
 func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, error)) {
 	cmd := &cli.Command{
-		Name:  "install",
-		Usage: "install an executable from a GitHub release",
+		Name:      "install",
+		Usage:     "install an executable from a GitHub release",
+		ArgsUsage: "<owner/repo[@tag]>",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "tag",
-				Aliases: []string{"t"},
-				Usage:   "release tag",
-			},
 			&cli.BoolFlag{
 				Name:    "force",
 				Aliases: []string{"f"},
@@ -43,7 +39,6 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			}
 			opts := grip.InstallOptions{
 				Repo:  c.Args().First(),
-				Tag:   c.String("tag"),
 				Force: c.Bool("force"),
 				Alias: c.String("alias"),
 				Asset: c.String("asset"),

@@ -231,10 +231,8 @@ func TestInstallForce(t *testing.T) {
 	src.calls.Store(0)
 	e.hits.Store(0)
 	before := e.snapshot(t)
-	for _, tag := range []string{"", "v1.0.0"} {
-		if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo, Tag: tag}); err != nil {
-			t.Fatalf("install of installed package at %q: %v", tag, err)
-		}
+	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatalf("install of installed package: %v", err)
 	}
 	if n, h := src.calls.Load(), e.hits.Load(); n != 0 || h != 0 {
 		t.Errorf("no-op install sent %d forge and %d asset requests, want 0", n, h)
@@ -242,10 +240,6 @@ func TestInstallForce(t *testing.T) {
 	if after := e.snapshot(t); !maps.Equal(before, after) {
 		t.Errorf("no-op install changed the home:\n%v\n%v", before, after)
 	}
-	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo, Tag: "v0.9.0"}); err == nil {
-		t.Error("install at another tag without Force succeeded")
-	}
-
 	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true}); err != nil {
 		t.Fatalf("install with Force: %v", err)
 	}
@@ -945,13 +939,13 @@ func TestExplicitAssetAllowsForeignArch(t *testing.T) {
 func TestAmbiguousAssetRetryCommands(t *testing.T) {
 	e := newInstallerEnv(t)
 	rel := e.releaseOf("v1.0.0", "a_darwin_amd64.tar.gz", "b_darwin_amd64.tar.gz")
-	err := e.installer(fakeSource{release: rel}).Install(context.Background(), InstallOptions{Repo: fixtureRepo, Tag: "v1.0.0", Bin: "x y"})
+	err := e.installer(fakeSource{release: rel}).Install(context.Background(), InstallOptions{Repo: fixtureRepo + "@v1.0.0", Bin: "x y"})
 	if !errors.Is(err, ErrAmbiguousAsset) {
 		t.Fatalf("err = %v, want ErrAmbiguousAsset", err)
 	}
 	for _, want := range []string{
-		"\n  grip install " + fixtureRepo + " --tag v1.0.0 --bin 'x y' --asset a_darwin_amd64.tar.gz",
-		"\n  grip install " + fixtureRepo + " --tag v1.0.0 --bin 'x y' --asset b_darwin_amd64.tar.gz",
+		"\n  grip install " + fixtureRepo + "@v1.0.0 --bin 'x y' --asset a_darwin_amd64.tar.gz",
+		"\n  grip install " + fixtureRepo + "@v1.0.0 --bin 'x y' --asset b_darwin_amd64.tar.gz",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want %q", err, want)
@@ -1424,4 +1418,61 @@ func TestPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.assertInstalled(t, name, "v1.1.0")
+}
+
+func TestInstallAtTag(t *testing.T) {
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	for _, tt := range []struct{ ref, tag string }{
+		{fixtureRepo + "@v1.2.3", "v1.2.3"},
+		{"github.com/" + fixtureRepo + "@kustomize/v5.8.2", "kustomize/v5.8.2"},
+		{"https://github.com/" + fixtureRepo + "@pkg@1.0", "pkg@1.0"},
+	} {
+		t.Run(tt.tag, func(t *testing.T) {
+			e := newInstallerEnv(t)
+			src := &countingSource{Source: fakeSource{release: e.release(tt.tag, "/ok")}}
+			if err := e.installer(src).Install(ctx, InstallOptions{Repo: tt.ref}); err != nil {
+				t.Fatal(err)
+			}
+			if src.tag != tt.tag {
+				t.Errorf("ReleaseByTag(%q), want %q", src.tag, tt.tag)
+			}
+			if inst, err := e.storage.Get(name); err != nil || !inst.Pinned || inst.Tag != tt.tag {
+				t.Errorf("state = %+v, %v; want pinned at %s", inst, err, tt.tag)
+			}
+		})
+	}
+
+	e := newInstallerEnv(t)
+	if err := e.installer(nil).Install(ctx, InstallOptions{Repo: fixtureRepo + "@"}); err == nil || !strings.Contains(err.Error(), "empty tag") {
+		t.Errorf("empty tag err = %v", err)
+	}
+
+	if err := e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	if inst, _ := e.storage.Get(name); inst.Pinned {
+		t.Error("install without tag pinned the package")
+	}
+
+	src := &countingSource{Source: fakeSource{release: e.release("v1.0.0", "/ok")}}
+	e.hits.Store(0)
+	if err := e.installer(src).Install(ctx, InstallOptions{Repo: fixtureRepo + "@v1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if src.calls.Load() != 0 || e.hits.Load() != 0 {
+		t.Errorf("install at the installed tag sent %d forge and %d asset requests", src.calls.Load(), e.hits.Load())
+	}
+	if inst, _ := e.storage.Get(name); !inst.Pinned {
+		t.Error("install at the installed tag did not pin")
+	}
+
+	if err := e.installer(fakeSource{release: e.release("v0.9.0", "/ok")}).Install(ctx, InstallOptions{Repo: fixtureRepo + "@v0.9.0"}); err != nil {
+		t.Fatalf("switch to another tag: %v", err)
+	}
+	e.assertInstalled(t, name, "v0.9.0")
+	e.assertStore(t, name, "v1.0.0", "v0.9.0", "v1.0.0")
+	if inst, _ := e.storage.Get(name); !inst.Pinned {
+		t.Error("switch to another tag did not pin")
+	}
 }

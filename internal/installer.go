@@ -38,8 +38,8 @@ func NewInstaller(cfg *Config, storage *Storage, source Source, httpClient *http
 
 // InstallOptions holds installation parameters
 type InstallOptions struct {
-	Repo  string
-	Tag   string
+	Repo  string // package reference, optionally with @tag
+	Tag   string // explicit tag, pins the package; split from Repo by Install
 	Force bool
 	Alias string
 	Asset string // asset name or path.Match pattern, remembered for updates
@@ -57,10 +57,18 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) error {
 	}
 	defer unlock()
 
-	cmd := "grip install " + shellArg(opts.Repo)
-	if opts.Tag != "" {
-		cmd += " --tag " + shellArg(opts.Tag)
+	if ref, tag, ok := strings.Cut(opts.Repo, "@"); ok {
+		if tag == "" {
+			return fmt.Errorf("empty tag in %q", opts.Repo)
+		}
+		opts.Repo, opts.Tag = ref, tag
 	}
+
+	ref := opts.Repo
+	if opts.Tag != "" {
+		ref += "@" + opts.Tag
+	}
+	cmd := "grip install " + shellArg(ref)
 	if opts.Alias != "" {
 		cmd += " --alias " + shellArg(opts.Alias)
 	}
@@ -131,9 +139,15 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 			return nil
 		case opts.Tag == existing.Tag:
 			logger.Println("%s %s is already installed", existing.Name, existing.Tag)
+			if existing.Pinned {
+				return nil
+			}
+			existing.Pinned = true
+			if err := i.storage.Save(existing); err != nil {
+				return fmt.Errorf("save installation: %w", err)
+			}
+			logPinned(existing)
 			return nil
-		default:
-			return fmt.Errorf("%s version %s is already installed", existing.Name, existing.Tag)
 		}
 		if existing.Pinned && opts.Tag == "" {
 			opts.Tag = existing.Tag
@@ -202,8 +216,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		AssetOverride: assetOverride,
 		BinOverride:   binOverride,
 	}
+	inst.Pinned = opts.Tag != ""
 	if existing != nil {
-		inst.Pinned = existing.Pinned
+		inst.Pinned = inst.Pinned || existing.Pinned
 		inst.Previous = existing.Previous
 		if existing.Tag != inst.Tag {
 			prev := existing.Version
@@ -234,7 +249,14 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	} else {
 		logger.Success("%s@%s installed successfully", installName, asset.Tag)
 	}
+	if opts.Tag != "" {
+		logPinned(inst)
+	}
 	return nil
+}
+
+func logPinned(inst *Installation) {
+	logger.Println("%s is pinned at %s, run grip unpin %s to follow the latest release", inst.Name, inst.Tag, inst.Name)
 }
 
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)

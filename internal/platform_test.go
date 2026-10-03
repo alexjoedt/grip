@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -68,8 +67,5 @@ func TestInstallAlreadyInstalledAnySpelling(t *testing.T) {
 		if err := inst.Install(context.Background(), InstallOptions{Repo: ref}); err != nil {
 			t.Errorf("Install(%q) err = %v, want no-op", ref, err)
 		}
-	}
-	if err := inst.Install(context.Background(), InstallOptions{Repo: "owner/repo", Tag: "v0.9.0"}); err == nil || !strings.Contains(err.Error(), "already installed") {
-		t.Errorf("Install at another tag err = %v, want already installed", err)
 	}
 }
