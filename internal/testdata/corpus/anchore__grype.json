@@ -1,0 +1,47 @@
+{
+  "repo": "anchore/grype",
+  "tag": "v0.120.0",
+  "assets": [
+    "grype_0.120.0_checksums.txt",
+    "grype_0.120.0_checksums.txt.sigstore.json",
+    "grype_0.120.0_darwin_amd64.tar.gz",
+    "grype_0.120.0_darwin_arm64.tar.gz",
+    "grype_0.120.0_linux_amd64.deb",
+    "grype_0.120.0_linux_amd64.rpm",
+    "grype_0.120.0_linux_amd64.tar.gz",
+    "grype_0.120.0_linux_arm64.deb",
+    "grype_0.120.0_linux_arm64.rpm",
+    "grype_0.120.0_linux_arm64.tar.gz",
+    "grype_0.120.0_linux_ppc64le.deb",
+    "grype_0.120.0_linux_ppc64le.rpm",
+    "grype_0.120.0_linux_ppc64le.tar.gz",
+    "grype_0.120.0_linux_s390x.deb",
+    "grype_0.120.0_linux_s390x.rpm",
+    "grype_0.120.0_linux_s390x.tar.gz",
+    "grype_0.120.0_windows_amd64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "grype_0.120.0_linux_amd64.tar.gz",
+    "linux/arm64": "grype_0.120.0_linux_arm64.tar.gz",
+    "darwin/arm64": "grype_0.120.0_darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "grype",
+      "elf": true
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    }
+  ],
+  "bin": "grype"
+}

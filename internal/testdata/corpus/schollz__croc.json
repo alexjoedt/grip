@@ -1,0 +1,64 @@
+{
+  "repo": "schollz/croc",
+  "tag": "v11.5.4",
+  "assets": [
+    "croc-11.5.4-1.aarch64.rpm",
+    "croc-11.5.4-1.armv5tel.rpm",
+    "croc-11.5.4-1.armv7hl.rpm",
+    "croc-11.5.4-1.i386.rpm",
+    "croc-11.5.4-1.riscv64.rpm",
+    "croc-11.5.4-1.x86_64.rpm",
+    "croc-web_v11.5.4_Linux-amd64.tar.gz",
+    "croc_11.5.4-1_amd64.deb",
+    "croc_11.5.4-1_arm64.deb",
+    "croc_11.5.4-1_armel.deb",
+    "croc_11.5.4-1_armhf.deb",
+    "croc_11.5.4-1_i386.deb",
+    "croc_11.5.4-1_riscv64.deb",
+    "croc_v11.5.4_checksums.txt",
+    "croc_v11.5.4_DragonFlyBSD-64bit.tar.gz",
+    "croc_v11.5.4_FreeBSD-64bit.tar.gz",
+    "croc_v11.5.4_FreeBSD-ARM64.tar.gz",
+    "croc_v11.5.4_Linux-32bit.tar.gz",
+    "croc_v11.5.4_Linux-64bit.tar.gz",
+    "croc_v11.5.4_Linux-ARM.tar.gz",
+    "croc_v11.5.4_Linux-ARM64.tar.gz",
+    "croc_v11.5.4_Linux-ARMv5.tar.gz",
+    "croc_v11.5.4_Linux-RISCV64.tar.gz",
+    "croc_v11.5.4_macOS-64bit.tar.gz",
+    "croc_v11.5.4_macOS-ARM64.tar.gz",
+    "croc_v11.5.4_NetBSD-32bit.tar.gz",
+    "croc_v11.5.4_NetBSD-64bit.tar.gz",
+    "croc_v11.5.4_NetBSD-ARM64.tar.gz",
+    "croc_v11.5.4_OpenBSD-64bit.tar.gz",
+    "croc_v11.5.4_OpenBSD-ARM64.tar.gz",
+    "croc_v11.5.4_src.tar.gz",
+    "croc_v11.5.4_Windows-32bit.zip",
+    "croc_v11.5.4_Windows-64bit.zip",
+    "croc_v11.5.4_Windows-ARM64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "croc_v11.5.4_Linux-64bit.tar.gz",
+    "linux/arm64": "croc_v11.5.4_Linux-ARM64.tar.gz",
+    "darwin/arm64": "croc_v11.5.4_macOS-ARM64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "croc",
+      "elf": true
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "src/codephrase/wordlists/LICENSE.txt",
+      "elf": false
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "elf": false
+    }
+  ],
+  "bin": "croc"
+}

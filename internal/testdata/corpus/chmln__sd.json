@@ -1,0 +1,63 @@
+{
+  "repo": "chmln/sd",
+  "tag": "v1.1.0",
+  "assets": [
+    "sd-v1.1.0-aarch64-apple-darwin.tar.gz",
+    "sd-v1.1.0-aarch64-unknown-linux-musl.tar.gz",
+    "sd-v1.1.0-arm-unknown-linux-gnueabihf.tar.gz",
+    "sd-v1.1.0-armv7-unknown-linux-gnueabihf.tar.gz",
+    "sd-v1.1.0-x86_64-apple-darwin.tar.gz",
+    "sd-v1.1.0-x86_64-pc-windows-gnu.zip",
+    "sd-v1.1.0-x86_64-pc-windows-msvc.zip",
+    "sd-v1.1.0-x86_64-unknown-linux-gnu.tar.gz",
+    "sd-v1.1.0-x86_64-unknown-linux-musl.tar.gz"
+  ],
+  "expect": {
+    "linux/amd64": "sd-v1.1.0-x86_64-unknown-linux-musl.tar.gz",
+    "linux/arm64": "sd-v1.1.0-aarch64-unknown-linux-musl.tar.gz",
+    "darwin/arm64": "sd-v1.1.0-aarch64-apple-darwin.tar.gz"
+  },
+  "files": [
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/completions/_sd",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/completions/_sd.ps1",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/completions/sd.bash",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/completions/sd.elv",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/completions/sd.fish",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/LICENSE",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/README.md",
+      "elf": false
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/sd",
+      "elf": true
+    },
+    {
+      "path": "sd-v1.1.0-x86_64-unknown-linux-musl/sd.1",
+      "elf": false
+    }
+  ],
+  "bin": "sd-v1.1.0-x86_64-unknown-linux-musl/sd"
+}

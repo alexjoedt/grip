@@ -1,0 +1,60 @@
+{
+  "repo": "anchore/syft",
+  "tag": "v1.54.0",
+  "assets": [
+    "syft_1.54.0_checksums.txt",
+    "syft_1.54.0_checksums.txt.sigstore.json",
+    "syft_1.54.0_darwin_amd64.sbom",
+    "syft_1.54.0_darwin_amd64.tar.gz",
+    "syft_1.54.0_darwin_arm64.sbom",
+    "syft_1.54.0_darwin_arm64.tar.gz",
+    "syft_1.54.0_linux_amd64.deb",
+    "syft_1.54.0_linux_amd64.rpm",
+    "syft_1.54.0_linux_amd64.sbom",
+    "syft_1.54.0_linux_amd64.tar.gz",
+    "syft_1.54.0_linux_arm64.deb",
+    "syft_1.54.0_linux_arm64.rpm",
+    "syft_1.54.0_linux_arm64.sbom",
+    "syft_1.54.0_linux_arm64.tar.gz",
+    "syft_1.54.0_linux_ppc64le.deb",
+    "syft_1.54.0_linux_ppc64le.rpm",
+    "syft_1.54.0_linux_ppc64le.sbom",
+    "syft_1.54.0_linux_ppc64le.tar.gz",
+    "syft_1.54.0_linux_riscv64.deb",
+    "syft_1.54.0_linux_riscv64.rpm",
+    "syft_1.54.0_linux_riscv64.sbom",
+    "syft_1.54.0_linux_riscv64.tar.gz",
+    "syft_1.54.0_linux_s390x.deb",
+    "syft_1.54.0_linux_s390x.rpm",
+    "syft_1.54.0_linux_s390x.sbom",
+    "syft_1.54.0_linux_s390x.tar.gz",
+    "syft_1.54.0_windows_amd64.sbom",
+    "syft_1.54.0_windows_amd64.zip",
+    "syft_1.54.0_windows_arm64.sbom",
+    "syft_1.54.0_windows_arm64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "syft_1.54.0_linux_amd64.tar.gz",
+    "linux/arm64": "syft_1.54.0_linux_arm64.tar.gz",
+    "darwin/arm64": "syft_1.54.0_darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    },
+    {
+      "path": "syft",
+      "elf": true
+    }
+  ],
+  "bin": "syft"
+}

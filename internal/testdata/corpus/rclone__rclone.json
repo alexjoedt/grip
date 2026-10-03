@@ -1,0 +1,85 @@
+{
+  "repo": "rclone/rclone",
+  "tag": "v1.75.1",
+  "assets": [
+    "MD5SUMS",
+    "rclone-v1.75.1-aix-ppc64.zip",
+    "rclone-v1.75.1-freebsd-386.zip",
+    "rclone-v1.75.1-freebsd-amd64.zip",
+    "rclone-v1.75.1-freebsd-arm-v6.zip",
+    "rclone-v1.75.1-freebsd-arm-v7.zip",
+    "rclone-v1.75.1-freebsd-arm.zip",
+    "rclone-v1.75.1-linux-386.deb",
+    "rclone-v1.75.1-linux-386.rpm",
+    "rclone-v1.75.1-linux-386.zip",
+    "rclone-v1.75.1-linux-amd64.deb",
+    "rclone-v1.75.1-linux-amd64.rpm",
+    "rclone-v1.75.1-linux-amd64.zip",
+    "rclone-v1.75.1-linux-arm-v6.deb",
+    "rclone-v1.75.1-linux-arm-v6.rpm",
+    "rclone-v1.75.1-linux-arm-v6.zip",
+    "rclone-v1.75.1-linux-arm-v7.deb",
+    "rclone-v1.75.1-linux-arm-v7.rpm",
+    "rclone-v1.75.1-linux-arm-v7.zip",
+    "rclone-v1.75.1-linux-arm.deb",
+    "rclone-v1.75.1-linux-arm.rpm",
+    "rclone-v1.75.1-linux-arm.zip",
+    "rclone-v1.75.1-linux-arm64.deb",
+    "rclone-v1.75.1-linux-arm64.rpm",
+    "rclone-v1.75.1-linux-arm64.zip",
+    "rclone-v1.75.1-linux-mips.deb",
+    "rclone-v1.75.1-linux-mips.rpm",
+    "rclone-v1.75.1-linux-mips.zip",
+    "rclone-v1.75.1-linux-mipsle.deb",
+    "rclone-v1.75.1-linux-mipsle.rpm",
+    "rclone-v1.75.1-linux-mipsle.zip",
+    "rclone-v1.75.1-netbsd-386.zip",
+    "rclone-v1.75.1-netbsd-amd64.zip",
+    "rclone-v1.75.1-netbsd-arm-v6.zip",
+    "rclone-v1.75.1-netbsd-arm-v7.zip",
+    "rclone-v1.75.1-netbsd-arm.zip",
+    "rclone-v1.75.1-openbsd-386.zip",
+    "rclone-v1.75.1-openbsd-amd64.zip",
+    "rclone-v1.75.1-osx-amd64.zip",
+    "rclone-v1.75.1-osx-arm64.zip",
+    "rclone-v1.75.1-plan9-386.zip",
+    "rclone-v1.75.1-plan9-amd64.zip",
+    "rclone-v1.75.1-solaris-amd64.zip",
+    "rclone-v1.75.1-vendor.tar.gz",
+    "rclone-v1.75.1-windows-386.zip",
+    "rclone-v1.75.1-windows-amd64.zip",
+    "rclone-v1.75.1-windows-arm64.zip",
+    "rclone-v1.75.1.tar.gz",
+    "SHA1SUMS",
+    "SHA256SUMS",
+    "version.txt"
+  ],
+  "expect": {
+    "linux/amd64": "rclone-v1.75.1-linux-amd64.zip",
+    "linux/arm64": "rclone-v1.75.1-linux-arm64.zip",
+    "darwin/arm64": "rclone-v1.75.1-osx-arm64.zip"
+  },
+  "files": [
+    {
+      "path": "rclone-v1.75.1-linux-amd64/git-log.txt",
+      "elf": false
+    },
+    {
+      "path": "rclone-v1.75.1-linux-amd64/rclone",
+      "elf": true
+    },
+    {
+      "path": "rclone-v1.75.1-linux-amd64/rclone.1",
+      "elf": false
+    },
+    {
+      "path": "rclone-v1.75.1-linux-amd64/README.html",
+      "elf": false
+    },
+    {
+      "path": "rclone-v1.75.1-linux-amd64/README.txt",
+      "elf": false
+    }
+  ],
+  "bin": "rclone-v1.75.1-linux-amd64/rclone"
+}

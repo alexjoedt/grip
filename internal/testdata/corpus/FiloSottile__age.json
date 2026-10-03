@@ -1,0 +1,64 @@
+{
+  "repo": "FiloSottile/age",
+  "tag": "v1.3.2",
+  "assets": [
+    "age-v1.3.2-darwin-amd64.tar.gz",
+    "age-v1.3.2-darwin-amd64.tar.gz.proof",
+    "age-v1.3.2-darwin-arm64.tar.gz",
+    "age-v1.3.2-darwin-arm64.tar.gz.proof",
+    "age-v1.3.2-freebsd-amd64.tar.gz",
+    "age-v1.3.2-freebsd-amd64.tar.gz.proof",
+    "age-v1.3.2-linux-amd64.tar.gz",
+    "age-v1.3.2-linux-amd64.tar.gz.proof",
+    "age-v1.3.2-linux-arm.tar.gz",
+    "age-v1.3.2-linux-arm.tar.gz.proof",
+    "age-v1.3.2-linux-arm64.tar.gz",
+    "age-v1.3.2-linux-arm64.tar.gz.proof",
+    "age-v1.3.2-source.tar.gz",
+    "age-v1.3.2-source.tar.gz.proof",
+    "age-v1.3.2-windows-amd64.zip",
+    "age-v1.3.2-windows-amd64.zip.proof",
+    "age-v1.3.2-windows-arm64.zip",
+    "age-v1.3.2-windows-arm64.zip.proof"
+  ],
+  "expect": {
+    "linux/amd64": "age-v1.3.2-linux-amd64.tar.gz",
+    "linux/arm64": "age-v1.3.2-linux-arm64.tar.gz",
+    "darwin/arm64": "age-v1.3.2-darwin-arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "age/age",
+      "elf": true
+    },
+    {
+      "path": "age/age-inspect",
+      "elf": true
+    },
+    {
+      "path": "age/age-keygen",
+      "elf": true
+    },
+    {
+      "path": "age/age-plugin-batchpass",
+      "elf": true
+    },
+    {
+      "path": "age/age-plugin-pq",
+      "elf": true
+    },
+    {
+      "path": "age/age-plugin-tag",
+      "elf": true
+    },
+    {
+      "path": "age/age-plugin-tagpq",
+      "elf": true
+    },
+    {
+      "path": "age/LICENSE",
+      "elf": false
+    }
+  ],
+  "bin": "age/age"
+}

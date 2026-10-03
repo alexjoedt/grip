@@ -1,0 +1,27 @@
+{
+  "repo": "kubernetes-sigs/kustomize",
+  "tag": "kustomize/v5.8.2",
+  "assets": [
+    "checksums.txt",
+    "kustomize_v5.8.2_darwin_amd64.tar.gz",
+    "kustomize_v5.8.2_darwin_arm64.tar.gz",
+    "kustomize_v5.8.2_linux_amd64.tar.gz",
+    "kustomize_v5.8.2_linux_arm64.tar.gz",
+    "kustomize_v5.8.2_linux_ppc64le.tar.gz",
+    "kustomize_v5.8.2_linux_s390x.tar.gz",
+    "kustomize_v5.8.2_windows_amd64.zip",
+    "kustomize_v5.8.2_windows_arm64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "kustomize_v5.8.2_linux_amd64.tar.gz",
+    "linux/arm64": "kustomize_v5.8.2_linux_arm64.tar.gz",
+    "darwin/arm64": "kustomize_v5.8.2_darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "kustomize",
+      "elf": true
+    }
+  ],
+  "bin": "kustomize"
+}

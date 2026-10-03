@@ -1,0 +1,76 @@
+{
+  "repo": "go-task/task",
+  "tag": "v3.54.0",
+  "assets": [
+    "task_3.54.0_linux_386.apk",
+    "task_3.54.0_linux_386.deb",
+    "task_3.54.0_linux_386.rpm",
+    "task_3.54.0_linux_amd64.apk",
+    "task_3.54.0_linux_amd64.deb",
+    "task_3.54.0_linux_amd64.rpm",
+    "task_3.54.0_linux_arm.apk",
+    "task_3.54.0_linux_arm.deb",
+    "task_3.54.0_linux_arm.rpm",
+    "task_3.54.0_linux_arm64.apk",
+    "task_3.54.0_linux_arm64.deb",
+    "task_3.54.0_linux_arm64.rpm",
+    "task_3.54.0_linux_riscv64.apk",
+    "task_3.54.0_linux_riscv64.deb",
+    "task_3.54.0_linux_riscv64.rpm",
+    "task_checksums.txt",
+    "task_darwin_amd64.tar.gz",
+    "task_darwin_arm64.tar.gz",
+    "task_freebsd_386.tar.gz",
+    "task_freebsd_amd64.tar.gz",
+    "task_freebsd_arm.tar.gz",
+    "task_freebsd_arm64.tar.gz",
+    "task_linux_386.tar.gz",
+    "task_linux_amd64.tar.gz",
+    "task_linux_arm.tar.gz",
+    "task_linux_arm64.tar.gz",
+    "task_linux_riscv64.tar.gz",
+    "task_windows_386.zip",
+    "task_windows_amd64.zip",
+    "task_windows_arm64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "task_linux_amd64.tar.gz",
+    "linux/arm64": "task_linux_arm64.tar.gz",
+    "darwin/arm64": "task_darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "completion/bash/task.bash",
+      "elf": false
+    },
+    {
+      "path": "completion/fish/task.fish",
+      "elf": false
+    },
+    {
+      "path": "completion/nu/task-completions.nu",
+      "elf": false
+    },
+    {
+      "path": "completion/ps/task.ps1",
+      "elf": false
+    },
+    {
+      "path": "completion/zsh/_task",
+      "elf": false
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    },
+    {
+      "path": "task",
+      "elf": true
+    }
+  ],
+  "bin": "task"
+}

@@ -1,0 +1,44 @@
+{
+  "repo": "wagoodman/dive",
+  "tag": "v0.13.1",
+  "assets": [
+    "dive_0.13.1_checksums.txt",
+    "dive_0.13.1_darwin_amd64.tar.gz",
+    "dive_0.13.1_darwin_arm64.tar.gz",
+    "dive_0.13.1_linux_amd64.deb",
+    "dive_0.13.1_linux_amd64.rpm",
+    "dive_0.13.1_linux_amd64.tar.gz",
+    "dive_0.13.1_linux_arm64.deb",
+    "dive_0.13.1_linux_arm64.rpm",
+    "dive_0.13.1_linux_arm64.tar.gz",
+    "dive_0.13.1_linux_ppc64le.deb",
+    "dive_0.13.1_linux_ppc64le.rpm",
+    "dive_0.13.1_linux_ppc64le.tar.gz",
+    "dive_0.13.1_windows_amd64.zip",
+    "dive_0.13.1_windows_arm64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "dive_0.13.1_linux_amd64.tar.gz",
+    "linux/arm64": "dive_0.13.1_linux_arm64.tar.gz",
+    "darwin/arm64": "dive_0.13.1_darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "dive",
+      "elf": true
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    }
+  ],
+  "bin": "dive"
+}

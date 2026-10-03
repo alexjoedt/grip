@@ -1,0 +1,21 @@
+{
+  "repo": "kubernetes-sigs/kind",
+  "tag": "v0.33.0",
+  "assets": [
+    "kind-darwin-amd64",
+    "kind-darwin-amd64.sha256sum",
+    "kind-darwin-arm64",
+    "kind-darwin-arm64.sha256sum",
+    "kind-linux-amd64",
+    "kind-linux-amd64.sha256sum",
+    "kind-linux-arm64",
+    "kind-linux-arm64.sha256sum",
+    "kind-windows-amd64",
+    "kind-windows-amd64.sha256sum"
+  ],
+  "expect": {
+    "linux/amd64": "kind-linux-amd64",
+    "linux/arm64": "kind-linux-arm64",
+    "darwin/arm64": "kind-darwin-arm64"
+  }
+}

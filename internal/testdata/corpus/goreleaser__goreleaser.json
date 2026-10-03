@@ -1,0 +1,97 @@
+{
+  "repo": "goreleaser/goreleaser",
+  "tag": "v2.18.2",
+  "assets": [
+    "checksums.txt",
+    "checksums.txt.sigstore.json",
+    "goreleaser-2.18.2-1-aarch64.pkg.tar.zst",
+    "goreleaser-2.18.2-1-armv7h.pkg.tar.zst",
+    "goreleaser-2.18.2-1-i686.pkg.tar.zst",
+    "goreleaser-2.18.2-1-x86_64.pkg.tar.zst",
+    "goreleaser-2.18.2-1.aarch64.rpm",
+    "goreleaser-2.18.2-1.armv7hl.rpm",
+    "goreleaser-2.18.2-1.i386.rpm",
+    "goreleaser-2.18.2-1.loongarch64.rpm",
+    "goreleaser-2.18.2-1.ppc64.rpm",
+    "goreleaser-2.18.2-1.riscv64.rpm",
+    "goreleaser-2.18.2-1.x86_64.rpm",
+    "goreleaser_2.18.2_aarch64.apk",
+    "goreleaser_2.18.2_amd64.deb",
+    "goreleaser_2.18.2_arm64.deb",
+    "goreleaser_2.18.2_armhf.deb",
+    "goreleaser_2.18.2_armv7.apk",
+    "goreleaser_2.18.2_i386.deb",
+    "goreleaser_2.18.2_linux_amd64.flatpak",
+    "goreleaser_2.18.2_linux_arm64.flatpak",
+    "goreleaser_2.18.2_loong64.deb",
+    "goreleaser_2.18.2_loongarch64.apk",
+    "goreleaser_2.18.2_ppc64.apk",
+    "goreleaser_2.18.2_ppc64.deb",
+    "goreleaser_2.18.2_riscv64.apk",
+    "goreleaser_2.18.2_riscv64.deb",
+    "goreleaser_2.18.2_x86.apk",
+    "goreleaser_2.18.2_x86_64.apk",
+    "goreleaser_Darwin_all.tar.gz",
+    "goreleaser_Darwin_all.tar.gz.sbom.json",
+    "goreleaser_Darwin_arm64.tar.gz",
+    "goreleaser_Darwin_arm64.tar.gz.sbom.json",
+    "goreleaser_Darwin_x86_64.tar.gz",
+    "goreleaser_Darwin_x86_64.tar.gz.sbom.json",
+    "goreleaser_Linux_arm64.tar.gz",
+    "goreleaser_Linux_arm64.tar.gz.sbom.json",
+    "goreleaser_Linux_armv7.tar.gz",
+    "goreleaser_Linux_armv7.tar.gz.sbom.json",
+    "goreleaser_Linux_i386.tar.gz",
+    "goreleaser_Linux_i386.tar.gz.sbom.json",
+    "goreleaser_Linux_loong64.tar.gz",
+    "goreleaser_Linux_loong64.tar.gz.sbom.json",
+    "goreleaser_Linux_ppc64.tar.gz",
+    "goreleaser_Linux_ppc64.tar.gz.sbom.json",
+    "goreleaser_Linux_riscv64.tar.gz",
+    "goreleaser_Linux_riscv64.tar.gz.sbom.json",
+    "goreleaser_Linux_x86_64.tar.gz",
+    "goreleaser_Linux_x86_64.tar.gz.sbom.json",
+    "goreleaser_Windows_arm64.zip",
+    "goreleaser_Windows_arm64.zip.sbom.json",
+    "goreleaser_Windows_i386.zip",
+    "goreleaser_Windows_i386.zip.sbom.json",
+    "goreleaser_Windows_x86_64.zip",
+    "goreleaser_Windows_x86_64.zip.sbom.json"
+  ],
+  "expect": {
+    "linux/amd64": "goreleaser_Linux_x86_64.tar.gz",
+    "linux/arm64": "goreleaser_Linux_arm64.tar.gz",
+    "darwin/arm64": "goreleaser_Darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "completions/goreleaser.bash",
+      "elf": false
+    },
+    {
+      "path": "completions/goreleaser.fish",
+      "elf": false
+    },
+    {
+      "path": "completions/goreleaser.zsh",
+      "elf": false
+    },
+    {
+      "path": "goreleaser",
+      "elf": true
+    },
+    {
+      "path": "LICENSE.md",
+      "elf": false
+    },
+    {
+      "path": "manpages/goreleaser.1.gz",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    }
+  ],
+  "bin": "goreleaser"
+}

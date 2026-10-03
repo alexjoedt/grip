@@ -1,0 +1,18 @@
+{
+  "repo": "FiloSottile/mkcert",
+  "tag": "v1.4.4",
+  "assets": [
+    "mkcert-v1.4.4-darwin-amd64",
+    "mkcert-v1.4.4-darwin-arm64",
+    "mkcert-v1.4.4-linux-amd64",
+    "mkcert-v1.4.4-linux-arm",
+    "mkcert-v1.4.4-linux-arm64",
+    "mkcert-v1.4.4-windows-amd64.exe",
+    "mkcert-v1.4.4-windows-arm64.exe"
+  ],
+  "expect": {
+    "linux/amd64": "mkcert-v1.4.4-linux-amd64",
+    "linux/arm64": "mkcert-v1.4.4-linux-arm64",
+    "darwin/arm64": "mkcert-v1.4.4-darwin-arm64"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "repo": "traefik/traefik",
+  "tag": "v3.7.13",
+  "assets": [
+    "traefik-v3.7.13.src.tar.gz",
+    "traefik_v3.7.13_checksums.txt",
+    "traefik_v3.7.13_darwin_amd64.tar.gz",
+    "traefik_v3.7.13_darwin_arm64.tar.gz",
+    "traefik_v3.7.13_freebsd_386.tar.gz",
+    "traefik_v3.7.13_freebsd_amd64.tar.gz",
+    "traefik_v3.7.13_linux_386.tar.gz",
+    "traefik_v3.7.13_linux_amd64.tar.gz",
+    "traefik_v3.7.13_linux_arm64.tar.gz",
+    "traefik_v3.7.13_linux_armv6.tar.gz",
+    "traefik_v3.7.13_linux_armv7.tar.gz",
+    "traefik_v3.7.13_linux_ppc64le.tar.gz",
+    "traefik_v3.7.13_linux_riscv64.tar.gz",
+    "traefik_v3.7.13_linux_s390x.tar.gz",
+    "traefik_v3.7.13_openbsd_386.tar.gz",
+    "traefik_v3.7.13_openbsd_amd64.tar.gz",
+    "traefik_v3.7.13_openbsd_riscv64.tar.gz",
+    "traefik_v3.7.13_windows_386.zip",
+    "traefik_v3.7.13_windows_amd64.zip",
+    "traefik_v3.7.13_windows_arm64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "traefik_v3.7.13_linux_amd64.tar.gz",
+    "linux/arm64": "traefik_v3.7.13_linux_arm64.tar.gz",
+    "darwin/arm64": "traefik_v3.7.13_darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "LICENSE.md",
+      "elf": false
+    },
+    {
+      "path": "traefik",
+      "elf": true
+    }
+  ],
+  "bin": "traefik"
+}

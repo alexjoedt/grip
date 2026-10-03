@@ -1,0 +1,75 @@
+{
+  "repo": "sharkdp/bat",
+  "tag": "v0.26.1",
+  "assets": [
+    "bat-musl_0.26.1_arm64.deb",
+    "bat-musl_0.26.1_musl-linux-amd64.deb",
+    "bat-musl_0.26.1_musl-linux-i686.deb",
+    "bat-v0.26.1-aarch64-apple-darwin.tar.gz",
+    "bat-v0.26.1-aarch64-pc-windows-msvc.zip",
+    "bat-v0.26.1-aarch64-unknown-linux-gnu.tar.gz",
+    "bat-v0.26.1-aarch64-unknown-linux-musl.tar.gz",
+    "bat-v0.26.1-arm-unknown-linux-gnueabihf.tar.gz",
+    "bat-v0.26.1-arm-unknown-linux-musleabihf.tar.gz",
+    "bat-v0.26.1-i686-pc-windows-msvc.zip",
+    "bat-v0.26.1-i686-unknown-linux-gnu.tar.gz",
+    "bat-v0.26.1-i686-unknown-linux-musl.tar.gz",
+    "bat-v0.26.1-x86_64-apple-darwin.tar.gz",
+    "bat-v0.26.1-x86_64-pc-windows-msvc.zip",
+    "bat-v0.26.1-x86_64-unknown-linux-gnu.tar.gz",
+    "bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz",
+    "bat_0.26.1_amd64.deb",
+    "bat_0.26.1_arm64.deb",
+    "bat_0.26.1_armhf.deb",
+    "bat_0.26.1_i686.deb",
+    "bat_0.26.1_musl-linux-armhf.deb"
+  ],
+  "expect": {
+    "linux/amd64": "bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz",
+    "linux/arm64": "bat-v0.26.1-aarch64-unknown-linux-musl.tar.gz",
+    "darwin/arm64": "bat-v0.26.1-aarch64-apple-darwin.tar.gz"
+  },
+  "files": [
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/autocomplete/_bat.ps1",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/autocomplete/bat.bash",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/autocomplete/bat.fish",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/autocomplete/bat.zsh",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/bat",
+      "elf": true
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/bat.1",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/LICENSE-APACHE",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/LICENSE-MIT",
+      "elf": false
+    },
+    {
+      "path": "bat-v0.26.1-x86_64-unknown-linux-musl/README.md",
+      "elf": false
+    }
+  ],
+  "bin": "bat-v0.26.1-x86_64-unknown-linux-musl/bat"
+}

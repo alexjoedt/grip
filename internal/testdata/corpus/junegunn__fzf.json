@@ -1,0 +1,44 @@
+{
+  "repo": "junegunn/fzf",
+  "tag": "v0.74.4",
+  "assets": [
+    "fzf-0.74.4-android_arm64.tar.gz",
+    "fzf-0.74.4-darwin_amd64.tar.gz",
+    "fzf-0.74.4-darwin_arm64.tar.gz",
+    "fzf-0.74.4-freebsd_amd64.tar.gz",
+    "fzf-0.74.4-linux_amd64.tar.gz",
+    "fzf-0.74.4-linux_arm64.tar.gz",
+    "fzf-0.74.4-linux_armv5.tar.gz",
+    "fzf-0.74.4-linux_armv6.tar.gz",
+    "fzf-0.74.4-linux_armv7.tar.gz",
+    "fzf-0.74.4-linux_loong64.tar.gz",
+    "fzf-0.74.4-linux_ppc64le.tar.gz",
+    "fzf-0.74.4-linux_riscv64.tar.gz",
+    "fzf-0.74.4-linux_s390x.tar.gz",
+    "fzf-0.74.4-openbsd_amd64.tar.gz",
+    "fzf-0.74.4-windows_amd64.zip",
+    "fzf-0.74.4-windows_arm64.zip",
+    "fzf_0.74.4_amd64.deb",
+    "fzf_0.74.4_arm64.deb",
+    "fzf_0.74.4_armv5.deb",
+    "fzf_0.74.4_armv6.deb",
+    "fzf_0.74.4_armv7.deb",
+    "fzf_0.74.4_checksums.txt",
+    "fzf_0.74.4_loong64.deb",
+    "fzf_0.74.4_ppc64le.deb",
+    "fzf_0.74.4_riscv64.deb",
+    "fzf_0.74.4_s390x.deb"
+  ],
+  "expect": {
+    "linux/amd64": "fzf-0.74.4-linux_amd64.tar.gz",
+    "linux/arm64": "fzf-0.74.4-linux_arm64.tar.gz",
+    "darwin/arm64": "fzf-0.74.4-darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "fzf",
+      "elf": true
+    }
+  ],
+  "bin": "fzf"
+}

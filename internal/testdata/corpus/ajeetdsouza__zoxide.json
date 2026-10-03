@@ -1,0 +1,103 @@
+{
+  "repo": "ajeetdsouza/zoxide",
+  "tag": "v0.10.0",
+  "assets": [
+    "zoxide-0.10.0-aarch64-apple-darwin.tar.gz",
+    "zoxide-0.10.0-aarch64-linux-android.tar.gz",
+    "zoxide-0.10.0-aarch64-pc-windows-msvc.zip",
+    "zoxide-0.10.0-aarch64-unknown-linux-musl.tar.gz",
+    "zoxide-0.10.0-arm-unknown-linux-musleabihf.tar.gz",
+    "zoxide-0.10.0-armv7-linux-androideabi.tar.gz",
+    "zoxide-0.10.0-armv7-unknown-linux-musleabihf.tar.gz",
+    "zoxide-0.10.0-i686-unknown-linux-musl.tar.gz",
+    "zoxide-0.10.0-riscv64gc-unknown-linux-musl.tar.gz",
+    "zoxide-0.10.0-x86_64-apple-darwin.tar.gz",
+    "zoxide-0.10.0-x86_64-pc-windows-msvc.zip",
+    "zoxide-0.10.0-x86_64-unknown-linux-musl.tar.gz",
+    "zoxide_0.10.0-1_amd64.deb",
+    "zoxide_0.10.0-1_arm64.deb",
+    "zoxide_0.10.0-1_armhf.deb",
+    "zoxide_0.10.0-1_i386.deb",
+    "zoxide_0.10.0-1_riscv64.deb"
+  ],
+  "expect": {
+    "linux/amd64": "zoxide-0.10.0-x86_64-unknown-linux-musl.tar.gz",
+    "linux/arm64": "zoxide-0.10.0-aarch64-unknown-linux-musl.tar.gz",
+    "darwin/arm64": "zoxide-0.10.0-aarch64-apple-darwin.tar.gz"
+  },
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "completions/_zoxide",
+      "elf": false
+    },
+    {
+      "path": "completions/_zoxide.ps1",
+      "elf": false
+    },
+    {
+      "path": "completions/README.md",
+      "elf": false
+    },
+    {
+      "path": "completions/zoxide.bash",
+      "elf": false
+    },
+    {
+      "path": "completions/zoxide.elv",
+      "elf": false
+    },
+    {
+      "path": "completions/zoxide.fish",
+      "elf": false
+    },
+    {
+      "path": "completions/zoxide.nu",
+      "elf": false
+    },
+    {
+      "path": "completions/zoxide.ts",
+      "elf": false
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "man/man1/zoxide-add.1",
+      "elf": false
+    },
+    {
+      "path": "man/man1/zoxide-import.1",
+      "elf": false
+    },
+    {
+      "path": "man/man1/zoxide-init.1",
+      "elf": false
+    },
+    {
+      "path": "man/man1/zoxide-query.1",
+      "elf": false
+    },
+    {
+      "path": "man/man1/zoxide-remove.1",
+      "elf": false
+    },
+    {
+      "path": "man/man1/zoxide.1",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    },
+    {
+      "path": "zoxide",
+      "elf": true
+    }
+  ],
+  "bin": "zoxide"
+}

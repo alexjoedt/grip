@@ -1,0 +1,38 @@
+{
+  "repo": "dandavison/delta",
+  "tag": "0.19.2",
+  "assets": [
+    "delta-0.19.2-aarch64-apple-darwin.tar.gz",
+    "delta-0.19.2-aarch64-unknown-linux-gnu.tar.gz",
+    "delta-0.19.2-arm-unknown-linux-gnueabihf.tar.gz",
+    "delta-0.19.2-i686-unknown-linux-gnu.tar.gz",
+    "delta-0.19.2-x86_64-pc-windows-msvc.zip",
+    "delta-0.19.2-x86_64-unknown-linux-gnu.tar.gz",
+    "delta-0.19.2-x86_64-unknown-linux-musl.tar.gz",
+    "git-delta-musl_0.19.2_amd64.deb",
+    "git-delta_0.19.2_amd64.deb",
+    "git-delta_0.19.2_arm64.deb",
+    "git-delta_0.19.2_armhf.deb",
+    "git-delta_0.19.2_i386.deb"
+  ],
+  "expect": {
+    "linux/amd64": "delta-0.19.2-x86_64-unknown-linux-musl.tar.gz",
+    "linux/arm64": "delta-0.19.2-aarch64-unknown-linux-gnu.tar.gz",
+    "darwin/arm64": "delta-0.19.2-aarch64-apple-darwin.tar.gz"
+  },
+  "files": [
+    {
+      "path": "delta-0.19.2-x86_64-unknown-linux-musl/delta",
+      "elf": true
+    },
+    {
+      "path": "delta-0.19.2-x86_64-unknown-linux-musl/LICENSE",
+      "elf": false
+    },
+    {
+      "path": "delta-0.19.2-x86_64-unknown-linux-musl/README.md",
+      "elf": false
+    }
+  ],
+  "bin": "delta-0.19.2-x86_64-unknown-linux-musl/delta"
+}

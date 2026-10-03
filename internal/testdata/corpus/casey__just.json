@@ -1,0 +1,78 @@
+{
+  "repo": "casey/just",
+  "tag": "1.58.0",
+  "assets": [
+    "CHANGELOG.md",
+    "just-1.58.0-aarch64-apple-darwin.tar.gz",
+    "just-1.58.0-aarch64-pc-windows-msvc.zip",
+    "just-1.58.0-aarch64-unknown-linux-musl.tar.gz",
+    "just-1.58.0-arm-unknown-linux-musleabihf.tar.gz",
+    "just-1.58.0-armv7-unknown-linux-musleabihf.tar.gz",
+    "just-1.58.0-loongarch64-unknown-linux-musl.tar.gz",
+    "just-1.58.0-riscv64gc-unknown-linux-musl.tar.gz",
+    "just-1.58.0-x86_64-apple-darwin.tar.gz",
+    "just-1.58.0-x86_64-pc-windows-msvc.zip",
+    "just-1.58.0-x86_64-unknown-linux-musl.tar.gz",
+    "SHA256SUMS"
+  ],
+  "expect": {
+    "linux/amd64": "just-1.58.0-x86_64-unknown-linux-musl.tar.gz",
+    "linux/arm64": "just-1.58.0-aarch64-unknown-linux-musl.tar.gz",
+    "darwin/arm64": "just-1.58.0-aarch64-apple-darwin.tar.gz"
+  },
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "elf": false
+    },
+    {
+      "path": "Cargo.toml",
+      "elf": false
+    },
+    {
+      "path": "completions/just.bash",
+      "elf": false
+    },
+    {
+      "path": "completions/just.elvish",
+      "elf": false
+    },
+    {
+      "path": "completions/just.fish",
+      "elf": false
+    },
+    {
+      "path": "completions/just.nu",
+      "elf": false
+    },
+    {
+      "path": "completions/just.powershell",
+      "elf": false
+    },
+    {
+      "path": "completions/just.zsh",
+      "elf": false
+    },
+    {
+      "path": "GRAMMAR.md",
+      "elf": false
+    },
+    {
+      "path": "just",
+      "elf": true
+    },
+    {
+      "path": "just.1",
+      "elf": false
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    }
+  ],
+  "bin": "just"
+}

@@ -1,0 +1,39 @@
+{
+  "repo": "jesseduffield/lazydocker",
+  "tag": "v0.25.2",
+  "assets": [
+    "checksums.txt",
+    "lazydocker_0.25.2_Darwin_arm64.tar.gz",
+    "lazydocker_0.25.2_Darwin_x86_64.tar.gz",
+    "lazydocker_0.25.2_Linux_arm64.tar.gz",
+    "lazydocker_0.25.2_Linux_armv6.tar.gz",
+    "lazydocker_0.25.2_Linux_armv7.tar.gz",
+    "lazydocker_0.25.2_Linux_x86.tar.gz",
+    "lazydocker_0.25.2_Linux_x86_64.tar.gz",
+    "lazydocker_0.25.2_Windows_arm64.zip",
+    "lazydocker_0.25.2_Windows_armv6.zip",
+    "lazydocker_0.25.2_Windows_armv7.zip",
+    "lazydocker_0.25.2_Windows_x86.zip",
+    "lazydocker_0.25.2_Windows_x86_64.zip"
+  ],
+  "expect": {
+    "linux/amd64": "lazydocker_0.25.2_Linux_x86_64.tar.gz",
+    "linux/arm64": "lazydocker_0.25.2_Linux_arm64.tar.gz",
+    "darwin/arm64": "lazydocker_0.25.2_Darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "lazydocker",
+      "elf": true
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    }
+  ],
+  "bin": "lazydocker"
+}

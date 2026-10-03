@@ -1,0 +1,72 @@
+{
+  "repo": "sharkdp/hyperfine",
+  "tag": "v1.20.0",
+  "assets": [
+    "hyperfine-musl_1.20.0_amd64.deb",
+    "hyperfine-musl_1.20.0_armhf.deb",
+    "hyperfine-musl_1.20.0_i686.deb",
+    "hyperfine-v1.20.0-aarch64-apple-darwin.tar.gz",
+    "hyperfine-v1.20.0-aarch64-unknown-linux-gnu.tar.gz",
+    "hyperfine-v1.20.0-arm-unknown-linux-gnueabihf.tar.gz",
+    "hyperfine-v1.20.0-arm-unknown-linux-musleabihf.tar.gz",
+    "hyperfine-v1.20.0-i686-pc-windows-msvc.zip",
+    "hyperfine-v1.20.0-i686-unknown-linux-gnu.tar.gz",
+    "hyperfine-v1.20.0-i686-unknown-linux-musl.tar.gz",
+    "hyperfine-v1.20.0-x86_64-apple-darwin.tar.gz",
+    "hyperfine-v1.20.0-x86_64-pc-windows-msvc.zip",
+    "hyperfine-v1.20.0-x86_64-unknown-linux-gnu.tar.gz",
+    "hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz",
+    "hyperfine_1.20.0_amd64.deb",
+    "hyperfine_1.20.0_arm64.deb",
+    "hyperfine_1.20.0_armhf.deb",
+    "hyperfine_1.20.0_i686.deb"
+  ],
+  "expect": {
+    "linux/amd64": "hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz",
+    "linux/arm64": "hyperfine-v1.20.0-aarch64-unknown-linux-gnu.tar.gz",
+    "darwin/arm64": "hyperfine-v1.20.0-aarch64-apple-darwin.tar.gz"
+  },
+  "files": [
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/autocomplete/_hyperfine",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/autocomplete/_hyperfine.ps1",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/autocomplete/hyperfine.bash",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/autocomplete/hyperfine.fish",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/CHANGELOG.md",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/hyperfine",
+      "elf": true
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/hyperfine.1",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/LICENSE-APACHE",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/LICENSE-MIT",
+      "elf": false
+    },
+    {
+      "path": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/README.md",
+      "elf": false
+    }
+  ],
+  "bin": "hyperfine-v1.20.0-x86_64-unknown-linux-musl/hyperfine"
+}

@@ -1,0 +1,109 @@
+{
+  "repo": "charmbracelet/gum",
+  "tag": "v2.0.2",
+  "assets": [
+    "checksums.txt",
+    "checksums.txt.sigstore.json",
+    "gum-2.0.2-1.aarch64.rpm",
+    "gum-2.0.2-1.armv6hl.rpm",
+    "gum-2.0.2-1.armv7hl.rpm",
+    "gum-2.0.2-1.i386.rpm",
+    "gum-2.0.2-1.x86_64.rpm",
+    "gum-2.0.2.tar.gz",
+    "gum-2.0.2.tar.gz.sbom.json",
+    "gum_2.0.2_aarch64.apk",
+    "gum_2.0.2_amd64.deb",
+    "gum_2.0.2_arm64.deb",
+    "gum_2.0.2_armhf.apk",
+    "gum_2.0.2_armhf.deb",
+    "gum_2.0.2_armhf6.deb",
+    "gum_2.0.2_armv7.apk",
+    "gum_2.0.2_Darwin_arm64.tar.gz",
+    "gum_2.0.2_Darwin_arm64.tar.gz.sbom.json",
+    "gum_2.0.2_Darwin_x86_64.tar.gz",
+    "gum_2.0.2_Darwin_x86_64.tar.gz.sbom.json",
+    "gum_2.0.2_Freebsd_arm64.tar.gz",
+    "gum_2.0.2_Freebsd_arm64.tar.gz.sbom.json",
+    "gum_2.0.2_Freebsd_armv6.tar.gz",
+    "gum_2.0.2_Freebsd_armv6.tar.gz.sbom.json",
+    "gum_2.0.2_Freebsd_armv7.tar.gz",
+    "gum_2.0.2_Freebsd_armv7.tar.gz.sbom.json",
+    "gum_2.0.2_Freebsd_i386.tar.gz",
+    "gum_2.0.2_Freebsd_i386.tar.gz.sbom.json",
+    "gum_2.0.2_Freebsd_x86_64.tar.gz",
+    "gum_2.0.2_Freebsd_x86_64.tar.gz.sbom.json",
+    "gum_2.0.2_i386.deb",
+    "gum_2.0.2_Linux_arm64.tar.gz",
+    "gum_2.0.2_Linux_arm64.tar.gz.sbom.json",
+    "gum_2.0.2_Linux_armv6.tar.gz",
+    "gum_2.0.2_Linux_armv6.tar.gz.sbom.json",
+    "gum_2.0.2_Linux_armv7.tar.gz",
+    "gum_2.0.2_Linux_armv7.tar.gz.sbom.json",
+    "gum_2.0.2_Linux_i386.tar.gz",
+    "gum_2.0.2_Linux_i386.tar.gz.sbom.json",
+    "gum_2.0.2_Linux_x86_64.tar.gz",
+    "gum_2.0.2_Linux_x86_64.tar.gz.sbom.json",
+    "gum_2.0.2_Netbsd_arm64.tar.gz",
+    "gum_2.0.2_Netbsd_arm64.tar.gz.sbom.json",
+    "gum_2.0.2_Netbsd_armv6.tar.gz",
+    "gum_2.0.2_Netbsd_armv6.tar.gz.sbom.json",
+    "gum_2.0.2_Netbsd_armv7.tar.gz",
+    "gum_2.0.2_Netbsd_armv7.tar.gz.sbom.json",
+    "gum_2.0.2_Netbsd_i386.tar.gz",
+    "gum_2.0.2_Netbsd_i386.tar.gz.sbom.json",
+    "gum_2.0.2_Netbsd_x86_64.tar.gz",
+    "gum_2.0.2_Netbsd_x86_64.tar.gz.sbom.json",
+    "gum_2.0.2_Openbsd_arm64.tar.gz",
+    "gum_2.0.2_Openbsd_arm64.tar.gz.sbom.json",
+    "gum_2.0.2_Openbsd_armv6.tar.gz",
+    "gum_2.0.2_Openbsd_armv6.tar.gz.sbom.json",
+    "gum_2.0.2_Openbsd_armv7.tar.gz",
+    "gum_2.0.2_Openbsd_armv7.tar.gz.sbom.json",
+    "gum_2.0.2_Openbsd_i386.tar.gz",
+    "gum_2.0.2_Openbsd_i386.tar.gz.sbom.json",
+    "gum_2.0.2_Openbsd_x86_64.tar.gz",
+    "gum_2.0.2_Openbsd_x86_64.tar.gz.sbom.json",
+    "gum_2.0.2_Windows_i386.zip",
+    "gum_2.0.2_Windows_i386.zip.sbom.json",
+    "gum_2.0.2_Windows_x86_64.zip",
+    "gum_2.0.2_Windows_x86_64.zip.sbom.json",
+    "gum_2.0.2_x86.apk",
+    "gum_2.0.2_x86_64.apk"
+  ],
+  "expect": {
+    "linux/amd64": "gum_2.0.2_Linux_x86_64.tar.gz",
+    "linux/arm64": "gum_2.0.2_Linux_arm64.tar.gz",
+    "darwin/arm64": "gum_2.0.2_Darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "gum_2.0.2_Linux_x86_64/completions/gum.bash",
+      "elf": false
+    },
+    {
+      "path": "gum_2.0.2_Linux_x86_64/completions/gum.fish",
+      "elf": false
+    },
+    {
+      "path": "gum_2.0.2_Linux_x86_64/completions/gum.zsh",
+      "elf": false
+    },
+    {
+      "path": "gum_2.0.2_Linux_x86_64/gum",
+      "elf": true
+    },
+    {
+      "path": "gum_2.0.2_Linux_x86_64/LICENSE",
+      "elf": false
+    },
+    {
+      "path": "gum_2.0.2_Linux_x86_64/manpages/gum.1.gz",
+      "elf": false
+    },
+    {
+      "path": "gum_2.0.2_Linux_x86_64/README.md",
+      "elf": false
+    }
+  ],
+  "bin": "gum_2.0.2_Linux_x86_64/gum"
+}

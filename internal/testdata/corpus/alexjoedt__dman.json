@@ -1,0 +1,31 @@
+{
+  "repo": "alexjoedt/dman",
+  "tag": "v1.9.0",
+  "assets": [
+    "checksums.txt",
+    "dman_Darwin_arm64.tar.gz",
+    "dman_Darwin_x86_64.tar.gz",
+    "dman_Linux_arm64.tar.gz",
+    "dman_Linux_x86_64.tar.gz"
+  ],
+  "expect": {
+    "linux/amd64": "dman_Linux_x86_64.tar.gz",
+    "linux/arm64": "dman_Linux_arm64.tar.gz",
+    "darwin/arm64": "dman_Darwin_arm64.tar.gz"
+  },
+  "files": [
+    {
+      "path": "dman",
+      "elf": true
+    },
+    {
+      "path": "LICENSE",
+      "elf": false
+    },
+    {
+      "path": "README.md",
+      "elf": false
+    }
+  ],
+  "bin": "dman"
+}

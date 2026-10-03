@@ -1,0 +1,32 @@
+{
+  "repo": "getsops/sops",
+  "tag": "v3.13.3",
+  "assets": [
+    "sops-3.13.3-1.aarch64.rpm",
+    "sops-3.13.3-1.x86_64.rpm",
+    "sops-v3.13.3.amd64.exe",
+    "sops-v3.13.3.amd64.exe.spdx.sbom.json",
+    "sops-v3.13.3.arm64.exe",
+    "sops-v3.13.3.arm64.exe.spdx.sbom.json",
+    "sops-v3.13.3.checksums.sigstore.json",
+    "sops-v3.13.3.checksums.txt",
+    "sops-v3.13.3.darwin",
+    "sops-v3.13.3.darwin.amd64",
+    "sops-v3.13.3.darwin.amd64.spdx.sbom.json",
+    "sops-v3.13.3.darwin.arm64",
+    "sops-v3.13.3.darwin.arm64.spdx.sbom.json",
+    "sops-v3.13.3.darwin.spdx.sbom.json",
+    "sops-v3.13.3.intoto.jsonl",
+    "sops-v3.13.3.linux.amd64",
+    "sops-v3.13.3.linux.amd64.spdx.sbom.json",
+    "sops-v3.13.3.linux.arm64",
+    "sops-v3.13.3.linux.arm64.spdx.sbom.json",
+    "sops_3.13.3_amd64.deb",
+    "sops_3.13.3_arm64.deb"
+  ],
+  "expect": {
+    "linux/amd64": "sops-v3.13.3.linux.amd64",
+    "linux/arm64": "sops-v3.13.3.linux.arm64",
+    "darwin/arm64": "sops-v3.13.3.darwin.arm64"
+  }
+}

@@ -103,6 +103,17 @@ func machOBinary() []byte {
 	}
 }
 
+// elfBinary returns a minimal 64-bit little-endian ELF header for x86-64.
+func elfBinary() []byte {
+	b := make([]byte, 64)
+	copy(b, []byte{0x7f, 'E', 'L', 'F', 2, 1, 1})
+	b[16] = 2    // ET_EXEC
+	b[18] = 0x3e // EM_X86_64
+	b[20] = 1    // EV_CURRENT
+	b[52] = 64   // e_ehsize
+	return b
+}
+
 // tarEntry describes a single entry for newTarStream.
 type tarEntry struct {
 	name    string

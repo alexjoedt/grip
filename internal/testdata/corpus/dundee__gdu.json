@@ -1,0 +1,49 @@
+{
+  "repo": "dundee/gdu",
+  "tag": "v5.37.0",
+  "assets": [
+    "gdu-5.37.0.tgz",
+    "gdu.1.tgz",
+    "gdu_android_arm64.tgz",
+    "gdu_darwin_amd64.tgz",
+    "gdu_darwin_arm64.tgz",
+    "gdu_freebsd_386.tgz",
+    "gdu_freebsd_amd64.tgz",
+    "gdu_freebsd_arm.tgz",
+    "gdu_linux_386.tgz",
+    "gdu_linux_amd64.tgz",
+    "gdu_linux_amd64_static.tgz",
+    "gdu_linux_arm.tgz",
+    "gdu_linux_arm64.tgz",
+    "gdu_linux_armv5l.tgz",
+    "gdu_linux_armv6l.tgz",
+    "gdu_linux_armv7l.tgz",
+    "gdu_linux_mips.tgz",
+    "gdu_linux_mips64.tgz",
+    "gdu_linux_mips64le.tgz",
+    "gdu_linux_mipsle.tgz",
+    "gdu_linux_ppc64.tgz",
+    "gdu_linux_ppc64le.tgz",
+    "gdu_linux_s390x.tgz",
+    "gdu_netbsd_386.tgz",
+    "gdu_netbsd_amd64.tgz",
+    "gdu_netbsd_arm.tgz",
+    "gdu_openbsd_386.tgz",
+    "gdu_openbsd_amd64.tgz",
+    "gdu_windows_amd64.exe.zip",
+    "sha256sums.txt",
+    "sha256sums.txt.asc"
+  ],
+  "expect": {
+    "linux/amd64": "gdu_linux_amd64.tgz",
+    "linux/arm64": "gdu_linux_arm64.tgz",
+    "darwin/arm64": "gdu_darwin_arm64.tgz"
+  },
+  "files": [
+    {
+      "path": "gdu_linux_amd64",
+      "elf": true
+    }
+  ],
+  "bin": "gdu_linux_amd64"
+}
