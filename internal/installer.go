@@ -167,7 +167,10 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		assetOverride = versionGlob(asset.Name, release.Tag)
 	}
 
-	sha256Hash, err := i.installAsset(ctx, asset, filepath.Join(i.pkgDir(installName), dir), installName)
+	version, err := i.installAsset(ctx, asset, pinnedDigest(existing, asset.Tag, asset.Name), filepath.Join(i.pkgDir(installName), dir), installName)
+	if errors.Is(err, ErrDigestChanged) {
+		return fmt.Errorf("install: %w; to accept the new asset run grip remove %s, then install it again", err, installName)
+	}
 	if err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
@@ -175,15 +178,11 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 
+	version.InstalledAt = time.Now()
 	inst := &Installation{
-		Name: installName,
-		Repo: repo.String(),
-		Version: Version{
-			Tag:         asset.Tag,
-			Asset:       asset.Name,
-			SHA256:      sha256Hash,
-			InstalledAt: time.Now(),
-		},
+		Name:          installName,
+		Repo:          repo.String(),
+		Version:       version,
 		AssetOverride: assetOverride,
 		BinOverride:   binOverride,
 	}
@@ -265,13 +264,49 @@ func (i *Installer) Update(ctx context.Context, name, asset, bin string) error {
 	return withRetry(i.install(ctx, opts), "grip update "+shellArg(name), opts)
 }
 
-// downloadAndUnpack downloads an asset archive and unpacks it.
-// Returns the path to the extracted executable and a cleanup function.
-// The caller is responsible for calling cleanup when done.
-func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string, func(), error) {
+// pinnedDigest returns the digest recorded for tag and asset in the current
+// or previous version, empty when none is recorded.
+func pinnedDigest(existing *Installation, tag, asset string) string {
+	if existing == nil {
+		return ""
+	}
+	for _, v := range []*Version{&existing.Version, existing.Previous} {
+		if v != nil && v.Tag == tag && v.Asset == asset {
+			return v.AssetDigest
+		}
+	}
+	return ""
+}
+
+// checkDigest verifies the downloaded hex sum against the published digest
+// and a pinned digest recorded earlier. It returns the digest source to record
+// and a warning when no sha256 digest was published.
+func checkDigest(asset *Asset, sum, pinned string) (source, warning string, err error) {
+	got := "sha256:" + sum
+	algo, want, _ := strings.Cut(asset.Digest, ":")
+	switch {
+	case asset.Digest == "":
+		source, warning = DigestSourceNone, fmt.Sprintf("%s has no published digest, recording %s", asset.Name, got)
+	case !strings.EqualFold(algo, "sha256"):
+		source, warning = DigestSourceNone, fmt.Sprintf("%s has an unsupported %s digest, recording %s", asset.Name, algo, got)
+	case !strings.EqualFold(want, sum):
+		return "", "", fmt.Errorf("%w for %s: expected %s, got %s", ErrDigestMismatch, asset.Name, asset.Digest, got)
+	default:
+		source = DigestSourceAPI
+	}
+	if pinned != "" && !strings.EqualFold(pinned, got) {
+		return "", "", fmt.Errorf("%w for %s %s: recorded %s, downloaded %s", ErrDigestChanged, asset.Name, asset.Tag, pinned, got)
+	}
+	return source, warning, nil
+}
+
+// downloadAndUnpack downloads an asset, verifies its digest and unpacks it.
+// It returns the path to the extracted executable, the version with tag,
+// asset and digest filled, and a cleanup function the caller must call.
+func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset, pinned string) (string, Version, func(), error) {
 	ws, err := NewWorkspace(i.config.TempDir, asset.Name)
 	if err != nil {
-		return "", nil, fmt.Errorf("create workspace: %w", err)
+		return "", Version{}, nil, fmt.Errorf("create workspace: %w", err)
 	}
 	cleanup := func() {
 		if cleanupErr := ws.Cleanup(); cleanupErr != nil {
@@ -279,13 +314,23 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 		}
 	}
 
-	if err := Download(ctx, i.httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name); err != nil {
+	sum, err := Download(ctx, i.httpClient, asset.DownloadURL, ws.DownloadDir(), asset.Name)
+	if err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("download: %w", err)
+		return "", Version{}, nil, fmt.Errorf("download: %w", err)
 	}
+	source, warning, err := checkDigest(asset, sum, pinned)
+	if err != nil {
+		cleanup()
+		return "", Version{}, nil, err
+	}
+	if warning != "" {
+		logger.Warn("%s", warning)
+	}
+	version := Version{Tag: asset.Tag, Asset: asset.Name, AssetDigest: "sha256:" + sum, DigestSource: source}
 	if err := i.stage("downloaded"); err != nil {
 		cleanup()
-		return "", nil, err
+		return "", Version{}, nil, err
 	}
 
 	archivePath := filepath.Join(ws.DownloadDir(), asset.Name)
@@ -298,14 +343,14 @@ func (i *Installer) downloadAndUnpack(ctx context.Context, asset *Asset) (string
 	})
 	if err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("unpack: %w", err)
+		return "", Version{}, nil, fmt.Errorf("unpack: %w", err)
 	}
 	if err := i.stage("unpacked"); err != nil {
 		cleanup()
-		return "", nil, err
+		return "", Version{}, nil, err
 	}
 
-	return binPath, cleanup, nil
+	return binPath, version, cleanup, nil
 }
 
 // stage runs the test fault hook at a named step; nil in production.
@@ -321,21 +366,25 @@ func (i *Installer) pkgDir(name string) string {
 }
 
 // installAsset downloads the asset, writes its binary to storeDir/name and
-// switches bin/name to it. It returns the SHA256 of the stored binary.
-func (i *Installer) installAsset(ctx context.Context, asset *Asset, storeDir, name string) (string, error) {
-	binPath, cleanup, err := i.downloadAndUnpack(ctx, asset)
+// switches bin/name to it. It returns the installed version without
+// InstalledAt.
+func (i *Installer) installAsset(ctx context.Context, asset *Asset, pinned, storeDir, name string) (Version, error) {
+	binPath, version, cleanup, err := i.downloadAndUnpack(ctx, asset, pinned)
 	if err != nil {
-		return "", err
+		return Version{}, err
 	}
 	defer cleanup()
 
 	_, statErr := os.Stat(storeDir)
 	created := errors.Is(statErr, os.ErrNotExist)
-	sum, err := i.storeAndSwitch(binPath, storeDir, name)
-	if err != nil && created {
-		_ = os.RemoveAll(storeDir)
+	version.SHA256, err = i.storeAndSwitch(binPath, storeDir, name)
+	if err != nil {
+		if created {
+			_ = os.RemoveAll(storeDir)
+		}
+		return Version{}, err
 	}
-	return sum, err
+	return version, nil
 }
 
 func (i *Installer) storeAndSwitch(binPath, storeDir, name string) (string, error) {

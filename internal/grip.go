@@ -68,7 +68,7 @@ func SelfUpdate(ctx context.Context, version string, installer *Installer) error
 	asset.Tag = latestTag
 
 	// Download and unpack using installer
-	binPath, cleanup, err := installer.downloadAndUnpack(ctx, asset)
+	binPath, _, cleanup, err := installer.downloadAndUnpack(ctx, asset, "")
 	if err != nil {
 		return err
 	}

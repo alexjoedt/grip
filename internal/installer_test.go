@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"debug/macho"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -858,4 +860,222 @@ func TestAmbiguousAssetRetryCommands(t *testing.T) {
 		}
 	}
 	e.assertEmptyState(t)
+}
+
+func sha256Digest(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// digestRelease serves content under path and publishes digest for it.
+func (e *installerEnv) digestRelease(tag, path string, content []byte, digest string) *Release {
+	e.files[path] = content
+	rel := e.release(tag, path)
+	rel.Assets[0].Digest = digest
+	return rel
+}
+
+func fixtureArchive(t *testing.T, variant byte) []byte {
+	t.Helper()
+	return tarGzOf(t, map[string][]byte{"grip-fixture-zz": append(machOBinary(), variant)})
+}
+
+func TestCheckDigest(t *testing.T) {
+	content := []byte("asset bytes")
+	good := sha256Digest(content)
+	sum := strings.TrimPrefix(good, "sha256:")
+	other := sha256Digest([]byte("other"))
+	tests := map[string]struct {
+		published, pinned string
+		source            string
+		warn              []string
+		err               error
+	}{
+		"published match":        {published: good, source: DigestSourceAPI},
+		"uppercase hex":          {published: "SHA256:" + strings.ToUpper(sum), source: DigestSourceAPI},
+		"published mismatch":     {published: other, err: ErrDigestMismatch},
+		"unpublished":            {source: DigestSourceNone, warn: []string{"tool.tar.gz", "no published digest"}},
+		"other algorithm":        {published: "sha512:abcd", source: DigestSourceNone, warn: []string{"tool.tar.gz", "sha512"}},
+		"pinned match":           {published: good, pinned: good, source: DigestSourceAPI},
+		"pinned differs":         {published: good, pinned: other, err: ErrDigestChanged},
+		"pinned differs, none":   {pinned: other, err: ErrDigestChanged},
+		"pinned, unpublished ok": {pinned: good, source: DigestSourceNone, warn: []string{"no published digest"}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			asset := &Asset{Name: "tool.tar.gz", Tag: "v1.0.0", Digest: tt.published}
+			source, warning, err := checkDigest(asset, sum, tt.pinned)
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("err = %v, want %v", err, tt.err)
+			}
+			if err != nil {
+				for _, s := range []string{"tool.tar.gz", good} {
+					if !strings.Contains(err.Error(), s) {
+						t.Errorf("error %q does not name %q", err, s)
+					}
+				}
+				return
+			}
+			if source != tt.source {
+				t.Errorf("source = %q, want %q", source, tt.source)
+			}
+			if (warning == "") != (len(tt.warn) == 0) {
+				t.Errorf("warning = %q, want one containing %q", warning, tt.warn)
+			}
+			for _, s := range tt.warn {
+				if !strings.Contains(warning, s) {
+					t.Errorf("warning %q does not contain %q", warning, s)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallDigestMismatchInstallsNothing(t *testing.T) {
+	e := newInstallerEnv(t)
+	content := fixtureArchive(t, 1)
+	inst := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", content, sha256Digest([]byte("tampered")))})
+	var stages []string
+	inst.faultHook = func(s string) error { stages = append(stages, s); return nil }
+
+	err := inst.Install(context.Background(), InstallOptions{Repo: fixtureRepo})
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("Install err = %v, want ErrDigestMismatch", err)
+	}
+	for _, s := range []string{"tool_darwin_amd64.tar.gz", sha256Digest(content), sha256Digest([]byte("tampered"))} {
+		if !strings.Contains(err.Error(), s) {
+			t.Errorf("error %q does not name %q", err, s)
+		}
+	}
+	if len(stages) != 0 {
+		t.Errorf("stages reached after mismatch: %v", stages)
+	}
+	for _, p := range []string{e.cfg.BinDir, filepath.Join(e.cfg.HomeDir, "pkgs"), filepath.Join(e.cfg.HomeDir, "grip.json")} {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Errorf("%s exists after mismatch: %v", p, err)
+		}
+	}
+}
+
+func TestUpdateDigestMismatchKeepsPrevious(t *testing.T) {
+	const name = "grip-fixture-zz"
+	e := newInstallerEnv(t)
+	prev := e.installV1(t)
+
+	rel := e.digestRelease("v1.1.0", "/b", fixtureArchive(t, 2), sha256Digest([]byte("tampered")))
+	if err := e.installer(fakeSource{release: rel}).Update(context.Background(), name, "", ""); !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("Update err = %v, want ErrDigestMismatch", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(e.cfg.BinDir, name)); err != nil || !bytes.Equal(got, prev) {
+		t.Errorf("bin/%s = %q, %v; want previous bytes", name, got, err)
+	}
+	e.assertStore(t, name, "", "v1.0.0")
+	if inst, err := e.storage.Get(name); err != nil || inst.Tag != "v1.0.0" {
+		t.Errorf("state = %+v, %v; want tag v1.0.0", inst, err)
+	}
+}
+
+func TestDigestRecorded(t *testing.T) {
+	const name = "grip-fixture-zz"
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	v1 := fixtureArchive(t, 1)
+	if err := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", v1, sha256Digest(v1))}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := e.storage.Get(name)
+	if err != nil || inst.AssetDigest != sha256Digest(v1) || inst.DigestSource != DigestSourceAPI {
+		t.Fatalf("v1 entry = %+v, %v; want digest %s from %s", inst, err, sha256Digest(v1), DigestSourceAPI)
+	}
+
+	v2 := fixtureArchive(t, 2)
+	if err := e.installer(fakeSource{release: e.digestRelease("v1.1.0", "/b", v2, "")}).Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	inst, err = e.storage.Get(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.AssetDigest != sha256Digest(v2) || inst.DigestSource != DigestSourceNone {
+		t.Errorf("current = %s from %s, want %s from %s", inst.AssetDigest, inst.DigestSource, sha256Digest(v2), DigestSourceNone)
+	}
+	if p := inst.Previous; p == nil || p.AssetDigest != sha256Digest(v1) || p.DigestSource != DigestSourceAPI {
+		t.Errorf("previous = %+v, want digest %s from %s", p, sha256Digest(v1), DigestSourceAPI)
+	}
+}
+
+func TestDigestPin(t *testing.T) {
+	const name = "grip-fixture-zz"
+	ctx := context.Background()
+	v1, changed := fixtureArchive(t, 1), fixtureArchive(t, 9)
+
+	t.Run("current", func(t *testing.T) {
+		e := newInstallerEnv(t)
+		if err := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", v1, "")}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := os.ReadFile(filepath.Join(e.cfg.HomeDir, "grip.json"))
+
+		rel := e.digestRelease("v1.0.0", "/a2", changed, sha256Digest(changed))
+		err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true})
+		if !errors.Is(err, ErrDigestChanged) {
+			t.Fatalf("Install err = %v, want ErrDigestChanged", err)
+		}
+		for _, s := range []string{sha256Digest(v1), sha256Digest(changed), "grip remove " + name} {
+			if !strings.Contains(err.Error(), s) {
+				t.Errorf("error %q does not contain %q", err, s)
+			}
+		}
+		after, _ := os.ReadFile(filepath.Join(e.cfg.HomeDir, "grip.json"))
+		if !bytes.Equal(before, after) {
+			t.Error("state changed after pin failure")
+		}
+	})
+
+	t.Run("previous", func(t *testing.T) {
+		e := newInstallerEnv(t)
+		if err := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", v1, sha256Digest(v1))}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.installer(fakeSource{release: e.digestRelease("v1.1.0", "/b", fixtureArchive(t, 2), "")}).Update(ctx, name, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		rel := e.digestRelease("v1.0.0", "/a2", changed, sha256Digest(changed))
+		err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Tag: "v1.0.0", Force: true})
+		if !errors.Is(err, ErrDigestChanged) {
+			t.Fatalf("Install err = %v, want ErrDigestChanged", err)
+		}
+		e.assertInstalled(t, name, "v1.1.0")
+	})
+
+	t.Run("no recorded digest", func(t *testing.T) {
+		e := newInstallerEnv(t)
+		if err := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", v1, "")}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+			t.Fatal(err)
+		}
+		inst, err := e.storage.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inst.AssetDigest, inst.DigestSource = "", ""
+		if err := e.storage.Save(inst); err != nil {
+			t.Fatal(err)
+		}
+		rel := e.digestRelease("v1.0.0", "/a2", changed, "")
+		if err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true}); err != nil {
+			t.Fatalf("unpinned reinstall: %v", err)
+		}
+	})
+
+	t.Run("other asset name", func(t *testing.T) {
+		e := newInstallerEnv(t)
+		if err := e.installer(fakeSource{release: e.digestRelease("v1.0.0", "/a", v1, "")}).Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+			t.Fatal(err)
+		}
+		e.files["/a2"] = changed
+		rel := &Release{Tag: "v1.0.0", Assets: []ReleaseAsset{{Name: "grip-fixture-zz_darwin_amd64.tar.gz", URL: e.srv.URL + "/a2"}}}
+		if err := e.installer(fakeSource{release: rel}).Install(ctx, InstallOptions{Repo: fixtureRepo, Force: true}); err != nil {
+			t.Fatalf("install of another asset: %v", err)
+		}
+	})
 }

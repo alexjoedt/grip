@@ -2,6 +2,8 @@ package grip
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,7 +105,7 @@ func TestDownloader(t *testing.T) {
 			defer os.RemoveAll(destDir)
 
 			ctx := context.Background()
-			err := Download(ctx, httpClient, tc.downloadURL, destDir, tc.filename)
+			sum, err := Download(ctx, httpClient, tc.downloadURL, destDir, tc.filename)
 
 			if tc.expectError {
 				assert.Error(t, err)
@@ -118,6 +120,8 @@ func TestDownloader(t *testing.T) {
 				content, err := os.ReadFile(downloadPath)
 				assert.NoError(t, err)
 				assert.Equal(t, "test file content", string(content))
+				want := sha256.Sum256(content)
+				assert.Equal(t, hex.EncodeToString(want[:]), sum)
 			}
 
 			mockTransport.AssertExpectations(t)

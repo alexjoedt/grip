@@ -18,6 +18,12 @@ import (
 
 const stateVersion = 2
 
+// Digest sources recorded in Version.DigestSource.
+const (
+	DigestSourceAPI  = "api-digest"
+	DigestSourceNone = "none"
+)
+
 // Version records one installed release of a package.
 type Version struct {
 	Tag          string    `json:"tag"`
