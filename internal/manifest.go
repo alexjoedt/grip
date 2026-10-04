@@ -1,6 +1,7 @@
 package grip
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -60,7 +61,8 @@ func (i *Installer) Export() (Manifest, error) {
 // Sync installs every package of m at its recorded tag and pin. Installed
 // packages at that tag are left alone apart from the pin, others switch to it;
 // packages missing from m are not touched. A recorded digest is enforced when
-// m was exported on this platform. A failure is logged and the run continues;
+// m was exported on this platform; from another one the recorded asset,
+// digest and asset override are dropped. A failure is logged and the run continues;
 // cancellation and the rate limit stop it.
 func (i *Installer) Sync(ctx context.Context, m Manifest) error {
 	if m.Version != manifestVersion {
@@ -110,6 +112,9 @@ func (i *Installer) Sync(ctx context.Context, m Manifest) error {
 		}
 		if native {
 			opts.recorded = &Version{Tag: e.Tag, Asset: e.Asset, AssetDigest: e.AssetDigest}
+		} else if e.AssetOverride != "" {
+			logger.Warn("%s: asset override %q was chosen on %s, not applied", name, e.AssetOverride, cmp.Or(m.Platform, "an unknown platform"))
+			opts.Asset = ""
 		}
 		err = i.Install(ctx, opts)
 		if errors.Is(err, ErrRateLimited) {

@@ -2,6 +2,7 @@ package grip
 
 import (
 	"context"
+	"debug/elf"
 	"errors"
 	"fmt"
 	"os"
@@ -167,5 +168,102 @@ func TestSyncFailures(t *testing.T) {
 			}
 			e.assertEmptyState(t)
 		})
+	}
+}
+
+// TestExportSync checks the epic criterion: export on A, sync into an empty
+// home on A yields the same names, tags and digests; on B the same names and
+// tags with B's digests.
+func TestExportSync(t *testing.T) {
+	ctx := context.Background()
+	a := newInstallerEnv(t)
+	src := tagSource{}
+	digests := map[string]string{} // os/name -> published digest
+	for _, name := range []string{"zz-a", "zz-b", "zz-c"} {
+		rel := &Release{Tag: "v1"}
+		for os, bin := range map[string][]byte{"darwin": machOBinary(), "linux": elfFor(elf.EM_X86_64, elf.ET_EXEC)} {
+			content := tarGzOf(t, map[string][]byte{"tool": append(bin, name...)})
+			path := "/" + os + "/" + name
+			a.files[path] = content
+			digests[os+"/"+name] = sha256Digest(content)
+			rel.Assets = append(rel.Assets, ReleaseAsset{Name: "tool_" + os + "_amd64.tar.gz", URL: a.srv.URL + path, Digest: sha256Digest(content)})
+		}
+		src[name], src[name+"@v1"] = rel, rel
+	}
+	ia := a.installer(src)
+	for _, opts := range []InstallOptions{
+		{Repo: "o/zz-a@v1"},
+		{Repo: "o/zz-b", Alias: "bee", Bin: "tool"},
+		{Repo: "o/zz-c", Asset: "tool_darwin_amd64.tar.gz"},
+	} {
+		if err := ia.Install(ctx, opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err := ia.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Packages["zz-c"].AssetOverride == "" {
+		t.Fatal("zz-c exported without asset override")
+	}
+
+	sync := func(os string) map[string]*Installation {
+		t.Helper()
+		e := newInstallerEnv(t)
+		e.cfg.OS = os
+		if err := e.installer(src).Sync(ctx, m); err != nil {
+			t.Fatalf("sync on %s: %v", os, err)
+		}
+		got := map[string]*Installation{}
+		insts, err := e.storage.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, inst := range insts {
+			got[inst.Name] = inst
+		}
+		return got
+	}
+
+	same := sync("darwin")
+	if len(same) != 3 {
+		t.Fatalf("sync on A installed %d packages, want 3", len(same))
+	}
+	for name, e := range m.Packages {
+		inst := same[name]
+		if inst == nil || inst.Repo != e.Repo || inst.Tag != e.Tag || inst.AssetDigest != e.AssetDigest || inst.Pinned != e.Pinned {
+			t.Errorf("sync on A: %s = %+v, want %+v", name, inst, e)
+		}
+	}
+
+	var other map[string]*Installation
+	_, stderr := captureOutput(t, func() { other = sync("linux") })
+	if !strings.Contains(stderr, `zz-c: asset override "tool_darwin_amd64.tar.gz" was chosen on darwin/amd64, not applied`) {
+		t.Errorf("no warning about the dropped asset override:\n%s", stderr)
+	}
+	if len(other) != 3 {
+		t.Fatalf("sync on B installed %d packages, want 3", len(other))
+	}
+	for name, e := range m.Packages {
+		inst := other[name]
+		repo, _ := ParseRepo(e.Repo)
+		if inst == nil || inst.Tag != e.Tag || inst.AssetDigest != digests["linux/"+repo.Name] || inst.DigestSource != DigestSourceAPI {
+			t.Errorf("sync on B: %s = %+v, want tag %s, linux digest from the forge", name, inst, e.Tag)
+		}
+	}
+	if c := other["zz-c"]; c.AssetOverride != "" {
+		t.Errorf("foreign asset override applied on B: %q", c.AssetOverride)
+	}
+	if b := other["bee"]; b.BinOverride != "tool" {
+		t.Errorf("bin override on B = %q, want tool", b.BinOverride)
+	}
+
+	m.Platform = ""
+	e := m.Packages["zz-a"]
+	e.AssetDigest = sha256Digest([]byte("elsewhere"))
+	m.Packages["zz-a"] = e
+	if a := sync("darwin")["zz-a"]; a.AssetDigest != digests["darwin/zz-a"] {
+		t.Errorf("sync without platform enforced the recorded digest: %s", a.AssetDigest)
 	}
 }
