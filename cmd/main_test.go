@@ -476,3 +476,34 @@ func TestExport(t *testing.T) {
 		t.Error("export took the lock")
 	}
 }
+
+func TestSyncInput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GRIP_HOME", home)
+	sync := func(stdin string, args ...string) error {
+		app := newApp()
+		app.Reader = strings.NewReader(stdin)
+		app.Writer = io.Discard
+		return app.Run(context.Background(), append([]string{"grip", "sync"}, args...))
+	}
+
+	if err := sync(""); err == nil {
+		t.Error("sync without a file succeeded")
+	}
+	if err := sync("{", "-"); err == nil || !strings.Contains(err.Error(), "read manifest -") {
+		t.Errorf("sync of malformed stdin: %v", err)
+	}
+	if err := sync("", filepath.Join(home, "missing.json")); err == nil {
+		t.Error("sync of a missing file succeeded")
+	}
+	if err := sync(`{"version":1,"packages":{}}`, "-"); err != nil {
+		t.Errorf("sync of an empty manifest: %v", err)
+	}
+	manifest := filepath.Join(t.TempDir(), "tools")
+	if err := os.WriteFile(manifest, []byte(`{"version":7,"packages":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sync("", manifest); err == nil || !strings.Contains(err.Error(), "unsupported manifest version 7") {
+		t.Errorf("sync of version 7: %v", err)
+	}
+}

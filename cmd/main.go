@@ -17,6 +17,7 @@ import (
 	"github.com/alexjoedt/grip/cmd/pin"
 	"github.com/alexjoedt/grip/cmd/remove"
 	"github.com/alexjoedt/grip/cmd/rollback"
+	"github.com/alexjoedt/grip/cmd/sync"
 	"github.com/alexjoedt/grip/cmd/update"
 	"github.com/alexjoedt/grip/cmd/verify"
 	grip "github.com/alexjoedt/grip/internal"
@@ -91,6 +92,7 @@ install of an installed one exit 0.`,
 	verify.Command(app, setup)
 	info.Command(app, setup)
 	export.Command(app, setup)
+	sync.Command(app, setup)
 	return app
 }
 

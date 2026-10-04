@@ -48,6 +48,8 @@ type InstallOptions struct {
 
 	requireDigest bool
 	release       *Release // already fetched, skips the forge request
+	pin           *bool    // replaces the pin an explicit tag sets
+	recorded      *Version // tag, asset and digest to enforce, from a manifest
 }
 
 // Install installs a package from GitHub
@@ -198,7 +200,11 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 		assetOverride = versionGlob(asset.Name, release.Tag)
 	}
 
-	version, err := i.installAsset(ctx, asset, pinnedDigest(existing, asset.Tag, asset.Name), filepath.Join(i.pkgDir(installName), dir), installName)
+	pinned := pinnedDigest(existing, asset.Tag, asset.Name)
+	if v := opts.recorded; pinned == "" && v != nil && v.Tag == asset.Tag && v.Asset == asset.Name {
+		pinned = v.AssetDigest
+	}
+	version, err := i.installAsset(ctx, asset, pinned, filepath.Join(i.pkgDir(installName), dir), installName)
 	if errors.Is(err, ErrDigestChanged) {
 		return fmt.Errorf("install: %w; to accept the new asset run grip remove %s, then install it again", err, installName)
 	}
@@ -226,6 +232,9 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 			inst.Previous = &prev
 		}
 	}
+	if opts.pin != nil {
+		inst.Pinned = *opts.pin
+	}
 
 	if err := i.storage.Save(inst); err != nil {
 		return fmt.Errorf("save installation: %w", err)
@@ -250,7 +259,7 @@ func (i *Installer) install(ctx context.Context, opts InstallOptions) error {
 	} else {
 		logger.Success("%s@%s installed successfully", installName, asset.Tag)
 	}
-	if opts.Tag != "" {
+	if opts.Tag != "" && inst.Pinned {
 		logPinned(inst)
 	}
 	return nil

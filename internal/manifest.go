@@ -1,5 +1,15 @@
 package grip
 
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+
+	"github.com/alexjoedt/grip/internal/logger"
+)
+
 const manifestVersion = 1
 
 // Manifest is the exported toolset of a grip home, the input of sync.
@@ -45,4 +55,84 @@ func (i *Installer) Export() (Manifest, error) {
 		}
 	}
 	return m, nil
+}
+
+// Sync installs every package of m at its recorded tag and pin. Installed
+// packages at that tag are left alone apart from the pin, others switch to it;
+// packages missing from m are not touched. A recorded digest is enforced when
+// m was exported on this platform. A failure is logged and the run continues;
+// cancellation and the rate limit stop it.
+func (i *Installer) Sync(ctx context.Context, m Manifest) error {
+	if m.Version != manifestVersion {
+		return fmt.Errorf("unsupported manifest version %d, want %d", m.Version, manifestVersion)
+	}
+	names := slices.Sorted(maps.Keys(m.Packages))
+	repos := make(map[string]Repo, len(names))
+	for _, name := range names {
+		if err := validName(name); err != nil {
+			return err
+		}
+		repo, err := ParseRepo(m.Packages[name].Repo)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		repos[name] = repo
+	}
+	native := m.Platform == i.config.OS+"/"+i.config.Arch
+
+	var installed, switched, current, failed int
+	var stopped error
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		e, repo := m.Packages[name], repos[name]
+		before, err := i.storage.Get(name)
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if before != nil && before.Repo == repo.String() && (e.Tag == "" || e.Tag == before.Tag) {
+			if before.Pinned != e.Pinned {
+				err = i.storage.SetPinned(ctx, e.Pinned, name)
+			}
+			if err != nil {
+				logger.Error("%s: %v", name, err)
+				failed++
+			} else {
+				current++
+			}
+			continue
+		}
+
+		opts := InstallOptions{Repo: e.Repo, Tag: e.Tag, Asset: e.AssetOverride, Bin: e.BinOverride, pin: &e.Pinned}
+		if name != repo.Name {
+			opts.Alias = name
+		}
+		if native {
+			opts.recorded = &Version{Tag: e.Tag, Asset: e.Asset, AssetDigest: e.AssetDigest}
+		}
+		err = i.Install(ctx, opts)
+		if errors.Is(err, ErrRateLimited) {
+			stopped = fmt.Errorf("%s: %w", name, err)
+			failed++
+			break
+		}
+		switch {
+		case err != nil:
+			logger.Error("%s: %v", name, err)
+			failed++
+		case before == nil:
+			installed++
+		default:
+			switched++
+		}
+	}
+	logger.Println("%d installed, %d switched, %d current, %d failed", installed, switched, current, failed)
+	if stopped != nil {
+		return stopped
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d packages failed", failed, len(names))
+	}
+	return nil
 }
