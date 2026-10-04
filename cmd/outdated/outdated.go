@@ -44,15 +44,21 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			}
 			if len(pkgs) > 0 {
 				tw := tabwriter.NewWriter(c.Root().Writer, 0, 0, 2, ' ', 0)
-				fmt.Fprintf(tw, "NAME\tTAG\tLATEST\tPINNED\n")
+				var werr error
+				row := func(format string, a ...any) {
+					if _, err := fmt.Fprintf(tw, format, a...); werr == nil {
+						werr = err
+					}
+				}
+				row("NAME\tTAG\tLATEST\tPINNED\n")
 				for _, p := range pkgs {
 					pinned := "no"
 					if p.Pinned {
 						pinned = "yes"
 					}
-					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Name, p.Tag, p.Latest, pinned)
+					row("%s\t%s\t%s\t%s\n", p.Name, p.Tag, p.Latest, pinned)
 				}
-				if err := tw.Flush(); err != nil {
+				if err := errors.Join(werr, tw.Flush()); err != nil {
 					return errors.Join(lookupErr, err)
 				}
 			}

@@ -108,10 +108,10 @@ func (s *Storage) Lock(ctx context.Context) (unlock func(), err error) {
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			return func() { f.Close() }, nil
+			return func() { _ = f.Close() }, nil
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
-			f.Close()
+			_ = f.Close()
 			return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
 		}
 		if !waiting {
@@ -120,7 +120,7 @@ func (s *Storage) Lock(ctx context.Context) (unlock func(), err error) {
 		}
 		select {
 		case <-ctx.Done():
-			f.Close()
+			_ = f.Close()
 			return nil, ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -322,11 +322,11 @@ func (s *Storage) save(st *state) error {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(stateFile{Version: stateVersion, Packages: st.packages}); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Close(); err != nil {
@@ -342,11 +342,11 @@ func writeFileExcl(path string, data []byte) error {
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()
@@ -358,7 +358,7 @@ func calculateFileSHA256(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

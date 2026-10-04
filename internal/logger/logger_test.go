@@ -22,7 +22,7 @@ func TestInfo(t *testing.T) {
 
 	Info("test message")
 
-	w.Close()
+	assert.NoError(t, w.Close())
 	buf := make([]byte, 1024)
 	n, _ := r.Read(buf)
 	output := string(buf[:n])
@@ -45,7 +45,7 @@ func TestInfoVerboseOff(t *testing.T) {
 
 	Info("test message")
 
-	w.Close()
+	assert.NoError(t, w.Close())
 	buf := make([]byte, 1024)
 	n, _ := r.Read(buf)
 	output := string(buf[:n])
@@ -64,7 +64,7 @@ func TestWarn(t *testing.T) {
 
 	Warn("test warning")
 
-	w.Close()
+	assert.NoError(t, w.Close())
 	buf := make([]byte, 1024)
 	n, _ := r.Read(buf)
 	output := string(buf[:n])
@@ -84,7 +84,7 @@ func TestSuccess(t *testing.T) {
 
 	Success("operation completed")
 
-	w.Close()
+	assert.NoError(t, w.Close())
 	buf := make([]byte, 1024)
 	n, _ := r.Read(buf)
 	output := string(buf[:n])
@@ -104,7 +104,7 @@ func TestError(t *testing.T) {
 
 	Error("test error")
 
-	w.Close()
+	assert.NoError(t, w.Close())
 	buf := make([]byte, 1024)
 	n, _ := r.Read(buf)
 	output := string(buf[:n])

@@ -45,6 +45,19 @@ func TestListOnEmptyHome(t *testing.T) {
 	}
 }
 
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("stdout closed") }
+
+func TestListReportsWriteError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	app := newApp()
+	app.Writer = failWriter{}
+	if err := app.Run(context.Background(), []string{"grip", "ls"}); err == nil {
+		t.Fatal("ls with a failing stdout returned nil")
+	}
+}
+
 func TestShortBuild(t *testing.T) {
 	for in, want := range map[string]string{"": "", "abc": "abc", "0123456789abcdef": "01234567"} {
 		if got := shortBuild(in); got != want {

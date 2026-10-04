@@ -43,7 +43,7 @@ func read(path string, stdin io.Reader) (grip.Manifest, error) {
 		if err != nil {
 			return m, err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		r = f
 	}
 	if err := json.NewDecoder(r).Decode(&m); err != nil {

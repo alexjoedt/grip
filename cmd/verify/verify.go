@@ -68,9 +68,15 @@ func printResults(c *cli.Command, storage *grip.Storage, results []grip.VerifyRe
 	}
 
 	tw := tabwriter.NewWriter(c.Root().Writer, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "NAME\tTAG\tRESULT\tDIGEST SOURCE\n")
-	for _, r := range results {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Name, r.Tag, r.Result, cmp.Or(r.DigestSource, "unknown"))
+	var werr error
+	row := func(format string, a ...any) {
+		if _, err := fmt.Fprintf(tw, format, a...); werr == nil {
+			werr = err
+		}
 	}
-	return tw.Flush()
+	row("NAME\tTAG\tRESULT\tDIGEST SOURCE\n")
+	for _, r := range results {
+		row("%s\t%s\t%s\t%s\n", r.Name, r.Tag, r.Result, cmp.Or(r.DigestSource, "unknown"))
+	}
+	return cmp.Or(werr, tw.Flush())
 }

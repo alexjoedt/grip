@@ -189,7 +189,7 @@ func openRoot(t *testing.T, dir string) *extractRoot {
 	t.Helper()
 	root, err := os.OpenRoot(dir)
 	require.NoError(t, err)
-	t.Cleanup(func() { root.Close() })
+	t.Cleanup(func() { _ = root.Close() })
 	return &extractRoot{Root: root}
 }
 

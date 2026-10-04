@@ -252,7 +252,7 @@ var machoCPUs = map[string]macho.Cpu{
 func executableFor(path, goos, goarch string) bool {
 	if goos == "darwin" {
 		if f, err := macho.Open(path); err == nil {
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			return machoFor(f.FileHeader, goarch)
 		}
 		ff, err := macho.OpenFat(path)
@@ -272,7 +272,7 @@ func executableFor(path, goos, goarch string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	m, ok := elfMachines[goarch]
 	return (goarch == "" || ok && f.Machine == m) && (f.Type == elf.ET_EXEC || f.Type == elf.ET_DYN)
 }
@@ -350,7 +350,7 @@ func openTar(archivePath string, root *extractRoot, bar *progressbar.ProgressBar
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	r, err := decompress(io.TeeReader(f, bar))
 	if err != nil {
 		return err
@@ -387,7 +387,7 @@ func unpackSingle(ext string, decompress func(io.Reader) (io.Reader, error)) unp
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		r, err := decompress(io.TeeReader(f, bar))
 		if err != nil {
 			return err

@@ -29,9 +29,7 @@ func TestUnpacker(t *testing.T) {
 		tarData := createTestTarGz(t)
 
 		// Write to temp file
-		tempDir := filepath.Join(os.TempDir(), "test-unpack")
-		require.NoError(t, os.MkdirAll(tempDir, 0755))
-		defer os.RemoveAll(tempDir)
+		tempDir := t.TempDir()
 
 		archivePath := filepath.Join(tempDir, "test.tar.gz")
 		require.NoError(t, os.WriteFile(archivePath, tarData, 0644))
@@ -48,9 +46,7 @@ func TestUnpacker(t *testing.T) {
 	t.Run("neither archive nor executable", func(t *testing.T) {
 		t.Parallel()
 
-		tempDir := filepath.Join(os.TempDir(), "test-unpack-invalid")
-		require.NoError(t, os.MkdirAll(tempDir, 0755))
-		defer os.RemoveAll(tempDir)
+		tempDir := t.TempDir()
 
 		archivePath := filepath.Join(tempDir, "test.txt")
 		require.NoError(t, os.WriteFile(archivePath, []byte("not an archive"), 0644))

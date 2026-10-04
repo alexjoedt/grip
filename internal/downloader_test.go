@@ -105,8 +105,7 @@ func TestDownloader(t *testing.T) {
 			tc.mockSetup(mockTransport)
 
 			httpClient := newMockHTTPClient(mockTransport)
-			destDir := filepath.Join(os.TempDir(), "test-download-"+tc.filename)
-			defer os.RemoveAll(destDir)
+			destDir := filepath.Join(t.TempDir(), "download")
 
 			ctx := context.Background()
 			sum, err := Download(ctx, httpClient, tc.downloadURL, destDir, tc.filename, 0)

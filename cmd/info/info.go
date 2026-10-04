@@ -52,22 +52,28 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			}
 
 			tw := tabwriter.NewWriter(c.Root().Writer, 0, 0, 2, ' ', 0)
-			fmt.Fprintf(tw, "name:\t%s\n", inst.Name)
-			fmt.Fprintf(tw, "repo:\t%s\n", inst.Repo)
-			fmt.Fprintf(tw, "tag:\t%s\n", inst.Tag)
-			fmt.Fprintf(tw, "asset:\t%s\n", unknown(inst.Asset))
-			fmt.Fprintf(tw, "asset digest:\t%s (%s)\n", unknown(inst.AssetDigest), unknown(inst.DigestSource))
-			fmt.Fprintf(tw, "sha256:\t%s\n", unknown(inst.SHA256))
-			fmt.Fprintf(tw, "installed:\t%s\n", installedAt(inst.InstalledAt))
-			fmt.Fprintf(tw, "pinned:\t%s\n", pinned)
-			fmt.Fprintf(tw, "asset override:\t%s\n", overrides(inst.AssetOverride))
-			fmt.Fprintf(tw, "bin override:\t%s\n", overrides(inst.BinOverride))
-			fmt.Fprintf(tw, "link:\t%s\n", link)
-			fmt.Fprintf(tw, "store:\t%s\n", storePath(link))
-			if p := inst.Previous; p != nil {
-				fmt.Fprintf(tw, "previous:\t%s, installed %s\n", p.Tag, installedAt(p.InstalledAt))
+			var werr error
+			row := func(format string, a ...any) {
+				if _, err := fmt.Fprintf(tw, format, a...); werr == nil {
+					werr = err
+				}
 			}
-			return tw.Flush()
+			row("name:\t%s\n", inst.Name)
+			row("repo:\t%s\n", inst.Repo)
+			row("tag:\t%s\n", inst.Tag)
+			row("asset:\t%s\n", unknown(inst.Asset))
+			row("asset digest:\t%s (%s)\n", unknown(inst.AssetDigest), unknown(inst.DigestSource))
+			row("sha256:\t%s\n", unknown(inst.SHA256))
+			row("installed:\t%s\n", installedAt(inst.InstalledAt))
+			row("pinned:\t%s\n", pinned)
+			row("asset override:\t%s\n", overrides(inst.AssetOverride))
+			row("bin override:\t%s\n", overrides(inst.BinOverride))
+			row("link:\t%s\n", link)
+			row("store:\t%s\n", storePath(link))
+			if p := inst.Previous; p != nil {
+				row("previous:\t%s, installed %s\n", p.Tag, installedAt(p.InstalledAt))
+			}
+			return cmp.Or(werr, tw.Flush())
 		},
 	}
 	app.Commands = append(app.Commands, cmd)

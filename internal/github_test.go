@@ -156,7 +156,7 @@ func TestGitHubTokenStaysOnAPI(t *testing.T) {
 	}))
 	t.Cleanup(assets.Close)
 	src := newGitHubTestSource(t, func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `{"tag_name":"v1.0.0","assets":[{"name":"tool_%s_%s.tar.gz","browser_download_url":%q}]}`,
+		_, _ = fmt.Fprintf(w, `{"tag_name":"v1.0.0","assets":[{"name":"tool_%s_%s.tar.gz","browser_download_url":%q}]}`,
 			e.cfg.OS, e.cfg.Arch, assets.URL+"/tool.tar.gz")
 	})
 	src.token = token

@@ -31,12 +31,12 @@ func NewWorkspace(baseTempDir, prefix string) (*Workspace, error) {
 	}
 
 	if err := os.MkdirAll(ws.downloadDir, 0755); err != nil {
-		ws.Cleanup() // Clean up root if we fail
+		_ = ws.Cleanup() // Clean up root if we fail
 		return nil, fmt.Errorf("create download directory: %w", err)
 	}
 
 	if err := os.MkdirAll(ws.unpackDir, 0755); err != nil {
-		ws.Cleanup()
+		_ = ws.Cleanup()
 		return nil, fmt.Errorf("create unpack directory: %w", err)
 	}
 
