@@ -14,6 +14,7 @@ import (
 	"github.com/alexjoedt/grip/cmd/outdated"
 	"github.com/alexjoedt/grip/cmd/pin"
 	"github.com/alexjoedt/grip/cmd/remove"
+	"github.com/alexjoedt/grip/cmd/rollback"
 	"github.com/alexjoedt/grip/cmd/update"
 	"github.com/alexjoedt/grip/cmd/verify"
 	grip "github.com/alexjoedt/grip/internal"
@@ -63,6 +64,7 @@ func newApp() *cli.Command {
 	outdated.Command(app, setup)
 	remove.Command(app, setup)
 	pin.Command(app, setup)
+	rollback.Command(app, setup)
 	verify.Command(app, setup)
 	return app
 }

@@ -563,18 +563,73 @@ func (i *Installer) storeAndSwitch(binPath, storeDir, name string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("hash binary: %w", err)
 	}
-
-	if err := os.MkdirAll(i.config.BinDir, 0o755); err != nil {
-		return "", fmt.Errorf("create bin dir: %w", err)
-	}
-	target, err := filepath.Rel(i.config.BinDir, storePath)
-	if err != nil {
-		return "", err
-	}
-	if err := switchLink(target, filepath.Join(i.config.BinDir, name)); err != nil {
+	if err := i.linkBinary(storePath, name); err != nil {
 		return "", err
 	}
 	return sum, nil
+}
+
+// linkBinary atomically points bin/name at storePath.
+func (i *Installer) linkBinary(storePath, name string) error {
+	if err := os.MkdirAll(i.config.BinDir, 0o755); err != nil {
+		return fmt.Errorf("create bin dir: %w", err)
+	}
+	target, err := filepath.Rel(i.config.BinDir, storePath)
+	if err != nil {
+		return err
+	}
+	return switchLink(target, filepath.Join(i.config.BinDir, name))
+}
+
+// Rollback points a package back at its previous version, swaps current and
+// previous in the state and pins it. The previous binary is rehashed against
+// its recorded sha256 first. It sends no request and deletes nothing.
+func (i *Installer) Rollback(ctx context.Context, name string) error {
+	unlock, err := i.storage.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	inst, err := i.storage.Get(name)
+	if err != nil {
+		return fmt.Errorf("package not found: %s", name)
+	}
+	prev := inst.Previous
+	if prev == nil {
+		return fmt.Errorf("%s has no previous version to roll back to", name)
+	}
+	if prev.SHA256 == "" {
+		return fmt.Errorf("%s %s has no recorded sha256, run grip install %s instead", name, prev.Tag, shellArg(inst.Repo+"@"+prev.Tag))
+	}
+	dir, err := tagDir(prev.Tag)
+	if err != nil {
+		return err
+	}
+	storePath := filepath.Join(i.pkgDir(name), dir, name)
+	sum, err := calculateFileSHA256(storePath)
+	if err != nil {
+		return fmt.Errorf("hash previous binary: %w", err)
+	}
+	if !strings.EqualFold(sum, prev.SHA256) {
+		return fmt.Errorf("previous binary %s is modified: recorded %s, got %s", storePath, prev.SHA256, sum)
+	}
+
+	if err := i.linkBinary(storePath, name); err != nil {
+		return err
+	}
+	if err := i.stage("switched"); err != nil {
+		return err
+	}
+
+	cur := inst.Version
+	inst.Version, inst.Previous, inst.Pinned = *prev, &cur, true
+	if err := i.storage.Save(inst); err != nil {
+		return fmt.Errorf("save installation: %w", err)
+	}
+	logger.Success("%s rolled back from %s to %s", name, cur.Tag, inst.Tag)
+	logPinned(inst)
+	return nil
 }
 
 // cleanStore deletes everything in the package's store dir except the

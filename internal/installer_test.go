@@ -1561,3 +1561,91 @@ func TestUpdateMany(t *testing.T) {
 		t.Errorf("cancelled UpdateMany err = %v", err)
 	}
 }
+
+func TestRollback(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	const name = "grip-fixture-zz"
+	src := &countingSource{Source: fakeSource{release: e.release("v1.0.0", "/ok")}}
+	inst := e.installer(src)
+	if err := inst.Install(ctx, InstallOptions{Repo: fixtureRepo}); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Rollback(ctx, name); err == nil || !strings.Contains(err.Error(), "no previous version") {
+		t.Fatalf("rollback without previous err = %v", err)
+	}
+	if err := inst.Rollback(ctx, "unknown-zz"); err == nil {
+		t.Fatal("rollback of unknown package succeeded")
+	}
+	src.Source = fakeSource{release: e.release("v1.1.0", "/ok")}
+	if err := inst.Update(ctx, name, "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	e.hits.Store(0)
+	src.calls.Store(0)
+	state := filepath.Join(e.cfg.HomeDir, "grip.json")
+	link := filepath.Join(e.cfg.BinDir, name)
+	before := e.snapshot(t)
+	delete(before, state)
+	delete(before, link)
+	for _, want := range []struct{ tag, prev string }{{"v1.0.0", "v1.1.0"}, {"v1.1.0", "v1.0.0"}} {
+		if err := inst.Rollback(ctx, name); err != nil {
+			t.Fatalf("rollback to %s: %v", want.tag, err)
+		}
+		e.assertInstalled(t, name, want.tag)
+		e.assertStore(t, name, want.prev, "v1.0.0", "v1.1.0")
+		if got, _ := e.storage.Get(name); !got.Pinned {
+			t.Errorf("rollback to %s did not pin", want.tag)
+		}
+	}
+	after := e.snapshot(t)
+	delete(after, state)
+	delete(after, link)
+	if !maps.Equal(before, after) || e.hits.Load() != 0 || src.calls.Load() != 0 {
+		t.Errorf("rollback changed the store or sent %d downloads, %d forge requests", e.hits.Load(), src.calls.Load())
+	}
+
+	prevBin := filepath.Join(e.cfg.HomeDir, "pkgs", name, "v1.0.0", name)
+	b, err := os.ReadFile(prevBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b[0] ^= 0xff
+	if err := os.Chmod(prevBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prevBin, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before = e.snapshot(t)
+	if err := inst.Rollback(ctx, name); err == nil || !strings.Contains(err.Error(), "modified") {
+		t.Fatalf("rollback to tampered binary err = %v", err)
+	}
+	if !maps.Equal(before, e.snapshot(t)) {
+		t.Error("failed rollback changed the home")
+	}
+	b[0] ^= 0xff
+	if err := os.WriteFile(prevBin, b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	inst.faultHook = func(s string) error {
+		if s == "switched" {
+			return errFault
+		}
+		return nil
+	}
+	if err := inst.Rollback(ctx, name); !errors.Is(err, errFault) {
+		t.Fatalf("rollback err = %v, want injected fault", err)
+	}
+	if got, err := e.storage.Get(name); err != nil || got.Tag != "v1.1.0" {
+		t.Fatalf("state = %+v, %v; want tag v1.1.0", got, err)
+	}
+	inst.faultHook = nil
+	if err := inst.Rollback(ctx, name); err != nil {
+		t.Fatalf("repairing rollback: %v", err)
+	}
+	e.assertInstalled(t, name, "v1.0.0")
+	e.assertStore(t, name, "v1.1.0", "v1.0.0", "v1.1.0")
+}
