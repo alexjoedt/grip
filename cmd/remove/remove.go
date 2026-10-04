@@ -3,7 +3,9 @@ package remove
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -35,10 +37,8 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				return err
 			}
 			if c.Bool("all") {
-				if !c.Bool("force") {
-					if !askForContinue() {
-						return nil
-					}
+				if !c.Bool("force") && !askForContinue() {
+					return errAborted
 				}
 
 				installations, err := storage.List()
@@ -46,11 +46,15 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 					return err
 				}
 
+				failed := 0
 				for _, inst := range installations {
 					if err := installer.Remove(ctx, inst.Name); err != nil {
 						logger.Error("Failed to remove %s: %v", inst.Name, err)
-						continue
+						failed++
 					}
+				}
+				if failed > 0 {
+					return fmt.Errorf("%d of %d removals failed", failed, len(installations))
 				}
 				return nil
 			}
@@ -64,10 +68,8 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				return fmt.Errorf("please provide the name or alias, not the repo path")
 			}
 
-			if !c.Bool("force") {
-				if !askForContinue() {
-					return nil
-				}
+			if !c.Bool("force") && !askForContinue() {
+				return errAborted
 			}
 
 			return installer.Remove(ctx, name)
@@ -76,15 +78,16 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 	app.Commands = append(app.Commands, cmd)
 }
 
+var errAborted = errors.New("aborted")
+
+// askForContinue reads a y/N answer from stdin; EOF counts as no.
 func askForContinue() bool {
 	reader := bufio.NewReader(os.Stdin)
 	logger.Print("Are you sure you want to continue? [y/N]: ")
 
 	input, err := reader.ReadString('\n')
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) {
 		logger.Error("Error reading input: %v", err)
-		return false
 	}
-
 	return strings.ToLower(strings.TrimSpace(input)) == "y"
 }

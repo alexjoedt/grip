@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	grip "github.com/alexjoedt/grip/internal"
 )
 
 func TestReadOnlyCommandsCreateNoFiles(t *testing.T) {
@@ -230,5 +235,98 @@ func TestCompletion(t *testing.T) {
 	app.Writer = &help
 	if err := app.Run(context.Background(), []string{"grip", "--help"}); err != nil || !strings.Contains(help.String(), "completion") {
 		t.Errorf("--help does not list completion: %v\n%s", err, help.String())
+	}
+}
+
+// exitSource serves latest tag per repo name; a missing name fails, "limited"
+// hits the rate limit.
+type exitSource map[string]string
+
+func (s exitSource) LatestRelease(_ context.Context, r grip.Repo) (*grip.Release, error) {
+	if r.Name == "limited" {
+		return nil, fmt.Errorf("GET x: 403 Forbidden: %w", grip.ErrRateLimited)
+	}
+	tag, ok := s[r.Name]
+	if !ok {
+		return nil, errors.New("no such repo")
+	}
+	return &grip.Release{Tag: tag}, nil
+}
+
+func (s exitSource) ReleaseByTag(ctx context.Context, r grip.Repo, _ string) (*grip.Release, error) {
+	return s.LatestRelease(ctx, r)
+}
+
+func TestExitCodes(t *testing.T) {
+	source = exitSource{"cur": "v1", "old": "v2", "held": "v2"}
+	t.Cleanup(func() { source = nil })
+	stdin := os.Stdin
+	t.Cleanup(func() { os.Stdin = stdin })
+
+	const (
+		cur    = `"cur":{"repo":"github.com/o/cur","tag":"v1"}`
+		old    = `"old":{"repo":"github.com/o/old","tag":"v1"}`
+		held   = `"held":{"repo":"github.com/o/held","tag":"v1","pinned":true}`
+		gone   = `"gone":{"repo":"github.com/o/gone","tag":"v1"}`
+		lim    = `"limited":{"repo":"github.com/o/limited","tag":"v1"}`
+		hashed = `"cur":{"repo":"github.com/o/cur","tag":"v1","sha256":"abc"}`
+	)
+	tests := []struct {
+		name  string
+		state []string
+		args  []string
+		fail  bool
+	}{
+		{"verify modified or missing", []string{hashed}, []string{"verify"}, true},
+		{"verify without hash", []string{cur}, []string{"verify"}, false},
+		{"update several, one failed", []string{cur, gone}, []string{"update", "cur", "gone"}, true},
+		{"update pinned", []string{held}, []string{"update", "held"}, true},
+		{"rate limit", []string{lim, cur}, []string{"outdated"}, true},
+		{"outdated failed lookup", []string{cur, gone}, []string{"outdated"}, true},
+		{"outdated with newer release", []string{cur, old}, []string{"outdated"}, false},
+		{"update current", []string{cur}, []string{"update", "cur"}, false},
+		{"update --all only pinned", []string{held}, []string{"update", "--all"}, false},
+		{"install installed", []string{cur}, []string{"install", "o/cur"}, false},
+		{"info unknown", nil, []string{"info", "nope"}, true},
+		{"update unknown", nil, []string{"update", "nope"}, true},
+		{"rollback unknown", nil, []string{"rollback", "nope"}, true},
+		{"pin unknown", nil, []string{"pin", "nope"}, true},
+		{"remove unknown", nil, []string{"remove", "--force", "nope"}, true},
+		{"unknown command", nil, []string{"nope"}, true},
+		{"unknown flag", nil, []string{"ls", "--nope"}, true},
+		{"missing argument", nil, []string{"rollback"}, true},
+		{"conflicting flags", nil, []string{"--quiet", "--verbose", "ls"}, true},
+		{"remove on empty stdin", []string{cur}, []string{"remove", "cur"}, true},
+		{"remove --all on empty stdin", []string{cur}, []string{"remove", "--all"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("GRIP_HOME", home)
+			state := fmt.Sprintf(`{"version":2,"packages":{%s}}`, strings.Join(tt.state, ","))
+			statePath := filepath.Join(home, "grip.json")
+			if err := os.WriteFile(statePath, []byte(state), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			devNull, err := os.Open(os.DevNull)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = devNull.Close() }()
+			os.Stdin = devNull
+
+			app := newApp()
+			app.Writer = io.Discard
+			app.ErrWriter = io.Discard
+			err = app.Run(context.Background(), append([]string{"grip"}, tt.args...))
+			if (err != nil) != tt.fail {
+				t.Errorf("grip %s: err = %v, want failure %v", strings.Join(tt.args, " "), err, tt.fail)
+			}
+			if strings.HasPrefix(tt.name, "remove") && tt.state != nil {
+				if b, _ := os.ReadFile(statePath); string(b) != state {
+					t.Error("aborted remove changed the state")
+				}
+			}
+		})
 	}
 }

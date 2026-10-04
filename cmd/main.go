@@ -41,10 +41,19 @@ func main() {
 
 func newApp() *cli.Command {
 	app := &cli.Command{
-		Name:    "grip",
-		Usage:   "grip [flags] <command>",
+		Name:  "grip",
+		Usage: "grip [flags] <command>",
+		Description: `Exit status: 0 when the command did what was asked, 1 otherwise.
+1 includes: verify finding a modified or missing binary, an update of
+several packages where one failed, update of a pinned package, an
+exhausted API rate limit, outdated with a failed lookup, an unknown
+package name, a usage error and a declined or unanswered remove prompt.
+outdated finding newer releases, update of a current package and
+install of an installed one exit 0.`,
 		Version: version,
 		// The generated completion command is hidden by default.
+		// main exits 1 on every error; the library would exit 3 on some.
+		ExitErrHandler:                  func(context.Context, *cli.Command, error) {},
 		EnableShellCompletion:           true,
 		ConfigureShellCompletionCommand: func(c *cli.Command) { c.Hidden = false },
 		Flags: []cli.Flag{
@@ -83,6 +92,9 @@ func newApp() *cli.Command {
 	return app
 }
 
+// source replaces the GitHub source in tests.
+var source grip.Source
+
 // setup creates the grip home and its dependencies. Commands call it from
 // their actions so that help and version touch nothing on disk.
 func setup() (*grip.Installer, *grip.Storage, error) {
@@ -109,7 +121,11 @@ func setup() (*grip.Installer, *grip.Storage, error) {
 		},
 	}
 
-	return grip.NewInstaller(cfg, storage, grip.NewGitHubSource(os.Getenv("GITHUB_TOKEN")), httpClient), storage, nil
+	src := source
+	if src == nil {
+		src = grip.NewGitHubSource(os.Getenv("GITHUB_TOKEN"))
+	}
+	return grip.NewInstaller(cfg, storage, src, httpClient), storage, nil
 }
 
 func versionCommand(app *cli.Command) {
