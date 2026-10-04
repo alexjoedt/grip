@@ -27,11 +27,7 @@ tasks:
       - task: build
       - |
         GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)
-        EXT=""
-        if [[ "$GOOS" == "windows" ]]; then
-          EXT=".exe"
-        fi
-        BINARY_PATH=$(find dist -name "grip${EXT}" -path "*grip_${GOOS}_${GOARCH}*" | head -1)
+        BINARY_PATH=$(find dist -name "grip" -path "*grip_${GOOS}_${GOARCH}*" | head -1)
         if [[ -z "$BINARY_PATH" ]]; then
           echo "Error: Binary not found for ${GOOS}/${GOARCH}"
           exit 1
@@ -45,11 +41,7 @@ tasks:
       - task: build
       - |
         GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)
-        EXT=""
-        if [[ "$GOOS" == "windows" ]]; then
-          EXT=".exe"
-        fi
-        BINARY_PATH=$(find dist -name "grip${EXT}" -path "*grip_${GOOS}_${GOARCH}*" | head -1)
+        BINARY_PATH=$(find dist -name "grip" -path "*grip_${GOOS}_${GOARCH}*" | head -1)
         if [[ -z "$BINARY_PATH" ]]; then
           echo "Error: Binary not found for ${GOOS}/${GOARCH}"
           exit 1
