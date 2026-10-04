@@ -428,3 +428,16 @@ func (s *Storage) Verify(names ...string) ([]VerifyResult, error) {
 	}
 	return results, nil
 }
+
+// PackageJSON is the --json form of an installation: the state encoding plus
+// name and link path.
+type PackageJSON struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	*Installation
+}
+
+// PackageJSON returns the --json form of inst.
+func (s *Storage) PackageJSON(inst *Installation) PackageJSON {
+	return PackageJSON{Name: inst.Name, Path: filepath.Join(s.InstallDir(inst), inst.Name), Installation: inst}
+}

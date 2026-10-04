@@ -3,6 +3,7 @@ package info
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -20,6 +21,12 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 		Name:      "info",
 		Usage:     "shows the recorded state of an installed executable",
 		ArgsUsage: "<name>",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "json",
+				Usage: "print JSON instead of a table",
+			},
+		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			if c.NArg() != 1 {
 				return fmt.Errorf("usage: grip info <name>")
@@ -31,6 +38,10 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			inst, err := storage.Get(c.Args().First())
 			if err != nil {
 				return err
+			}
+
+			if c.Bool("json") {
+				return json.NewEncoder(c.Root().Writer).Encode(storage.PackageJSON(inst))
 			}
 
 			link := filepath.Join(storage.InstallDir(inst), inst.Name)

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,5 +138,74 @@ func TestInfo(t *testing.T) {
 	}
 	if _, err := os.Stat(statePath + ".lock"); err == nil {
 		t.Error("info took the lock")
+	}
+}
+
+func TestJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GRIP_HOME", home)
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		app := newApp()
+		app.Writer = &out
+		err := app.Run(context.Background(), append([]string{"grip"}, args...))
+		return out.String(), err
+	}
+
+	for _, cmd := range []string{"ls", "outdated", "verify"} {
+		if out, err := run(cmd, "--json"); err != nil || out != "[]\n" {
+			t.Errorf("%s --json on empty home = %q, %v; want []", cmd, out, err)
+		}
+	}
+
+	state := `{"version":2,"packages":{
+		"a":{"repo":"github.com/o/a","tag":"v2","asset":"a.tar.gz","sha256":"bb","pinned":true,"previous":{"tag":"v1"}},
+		"b":{"repo":"github.com/o/b","tag":"v1"}}}`
+	if err := os.WriteFile(filepath.Join(home, "grip.json"), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{"name", "path", "repo", "tag", "asset", "assetDigest", "digestSource", "sha256", "installedAt", "pinned", "assetOverride", "binOverride"}
+	check := func(what string, obj map[string]any, extra ...string) {
+		t.Helper()
+		for _, k := range append(keys, extra...) {
+			if _, ok := obj[k]; !ok {
+				t.Errorf("%s: missing field %q in %v", what, k, obj)
+			}
+		}
+	}
+
+	out, err := run("info", "--json", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		t.Fatalf("info --json: %v: %q", err, out)
+	}
+	check("info", obj, "previous")
+	if obj["name"] != "a" || obj["path"] != filepath.Join(home, "bin", "a") {
+		t.Errorf("info --json name, path = %v, %v", obj["name"], obj["path"])
+	}
+
+	var arr []map[string]any
+	out, err = run("ls", "--json", "--filter", "name=^b$")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(out), &arr); err != nil || len(arr) != 1 || arr[0]["name"] != "b" {
+		t.Fatalf("ls --json --filter = %q, %v", out, err)
+	}
+	check("ls", arr[0])
+
+	out, err = run("verify", "--json")
+	if err == nil {
+		t.Error("verify --json with a missing binary exited zero")
+	}
+	arr = nil
+	if err := json.Unmarshal([]byte(out), &arr); err != nil || len(arr) != 2 {
+		t.Fatalf("verify --json = %q, %v", out, err)
+	}
+	for _, r := range arr {
+		check("verify", r, "status")
 	}
 }

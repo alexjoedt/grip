@@ -2,9 +2,9 @@ package list
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"text/tabwriter"
@@ -21,6 +21,10 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 			&cli.StringFlag{
 				Name:  "filter",
 				Usage: "filters installed executables (format: field=regex)",
+			},
+			&cli.BoolFlag{
+				Name:  "json",
+				Usage: "print JSON instead of a table",
 			},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
@@ -67,7 +71,15 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				installations = filtered
 			}
 
-			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			if c.Bool("json") {
+				out := []grip.PackageJSON{}
+				for _, inst := range installations {
+					out = append(out, storage.PackageJSON(inst))
+				}
+				return json.NewEncoder(c.Root().Writer).Encode(out)
+			}
+
+			tw := tabwriter.NewWriter(c.Root().Writer, 0, 0, 2, ' ', 0)
 			fmt.Fprintf(tw, "NAME\tTAG\tPINNED\tREPO\tINSTALL PATH\n")
 
 			for _, inst := range installations {
