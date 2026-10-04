@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexjoedt/grip/cmd/export"
 	"github.com/alexjoedt/grip/cmd/info"
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
@@ -89,6 +90,7 @@ install of an installed one exit 0.`,
 	rollback.Command(app, setup)
 	verify.Command(app, setup)
 	info.Command(app, setup)
+	export.Command(app, setup)
 	return app
 }
 

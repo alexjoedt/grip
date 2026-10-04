@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -390,5 +391,88 @@ func TestRemoveDryRun(t *testing.T) {
 	}
 	if b, err := os.ReadFile(statePath); err != nil || string(b) != state || !slices.Equal(before, listing()) {
 		t.Errorf("dry run changed the home: %v", err)
+	}
+}
+
+func TestExport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GRIP_HOME", home)
+	export := func() (string, error) {
+		var out bytes.Buffer
+		app := newApp()
+		app.Writer = &out
+		err := app.Run(context.Background(), []string{"grip", "export"})
+		return out.String(), err
+	}
+	platform := runtime.GOOS + "/" + runtime.GOARCH
+
+	out, err := export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("{\n  \"version\": 1,\n  \"platform\": %q,\n  \"packages\": {}\n}\n", platform); out != want {
+		t.Errorf("export on empty home = %q, want %q", out, want)
+	}
+
+	state := `{"version":2,"packages":{
+		"pinned":{"repo":"github.com/o/pinned","tag":"v2","asset":"pinned.tar.gz","assetDigest":"sha256:aa","digestSource":"api-digest",
+			"sha256":"bb","installedAt":"2026-01-02T03:04:05Z","pinned":true,"previous":{"tag":"v1"}},
+		"rg":{"repo":"github.com/o/ripgrep","tag":"v1","asset":"rg.zip","assetDigest":"sha256:cc","digestSource":"api-digest"},
+		"over":{"repo":"github.com/o/over","tag":"v3","asset":"over-v3-x.tar.gz","assetDigest":"sha256:dd","digestSource":"api-digest",
+			"assetOverride":"over-*-x.tar.gz","binOverride":"overd"},
+		"nodigest":{"repo":"github.com/o/nodigest","tag":"v1","asset":"nodigest","digestSource":"none","installPath":"/opt/bin"}}}`
+	statePath := filepath.Join(home, "grip.json")
+	if err := os.WriteFile(statePath, []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err = export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{
+  "version": 1,
+  "platform": "` + platform + `",
+  "packages": {
+    "nodigest": {
+      "repo": "github.com/o/nodigest",
+      "tag": "v1",
+      "asset": "nodigest",
+      "pinned": false
+    },
+    "over": {
+      "repo": "github.com/o/over",
+      "tag": "v3",
+      "asset": "over-v3-x.tar.gz",
+      "assetDigest": "sha256:dd",
+      "pinned": false,
+      "assetOverride": "over-*-x.tar.gz",
+      "binOverride": "overd"
+    },
+    "pinned": {
+      "repo": "github.com/o/pinned",
+      "tag": "v2",
+      "asset": "pinned.tar.gz",
+      "assetDigest": "sha256:aa",
+      "pinned": true
+    },
+    "rg": {
+      "repo": "github.com/o/ripgrep",
+      "tag": "v1",
+      "asset": "rg.zip",
+      "assetDigest": "sha256:cc",
+      "pinned": false
+    }
+  }
+}
+`
+	if out != want {
+		t.Errorf("export =\n%s\nwant\n%s", out, want)
+	}
+	if b, err := os.ReadFile(statePath); err != nil || string(b) != state {
+		t.Errorf("export changed the state file: %v", err)
+	}
+	if _, err := os.Stat(statePath + ".lock"); err == nil {
+		t.Error("export took the lock")
 	}
 }
