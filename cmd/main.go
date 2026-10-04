@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexjoedt/grip/cmd/info"
 	"github.com/alexjoedt/grip/cmd/install"
 	"github.com/alexjoedt/grip/cmd/list"
 	"github.com/alexjoedt/grip/cmd/outdated"
@@ -75,6 +76,7 @@ func newApp() *cli.Command {
 	pin.Command(app, setup)
 	rollback.Command(app, setup)
 	verify.Command(app, setup)
+	info.Command(app, setup)
 	return app
 }
 
