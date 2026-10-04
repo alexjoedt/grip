@@ -66,3 +66,11 @@ func TestVerifyExitCode(t *testing.T) {
 		t.Error("verify unknown succeeded")
 	}
 }
+
+func TestQuietAndVerboseConflict(t *testing.T) {
+	t.Setenv("GRIP_HOME", t.TempDir())
+	err := newApp().Run(context.Background(), []string{"grip", "--quiet", "--verbose", "ls"})
+	if err == nil || !strings.Contains(err.Error(), "cannot be used together") {
+		t.Errorf("--quiet --verbose err = %v", err)
+	}
+}

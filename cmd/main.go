@@ -48,11 +48,20 @@ func newApp() *cli.Command {
 				Name:  "verbose",
 				Usage: "enable verbose output",
 			},
+			&cli.BoolFlag{
+				Name:    "quiet",
+				Aliases: []string{"q"},
+				Usage:   "suppress progress and status output, keep warnings and errors",
+			},
 		},
 		Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
+			if c.Bool("quiet") && c.Bool("verbose") {
+				return ctx, fmt.Errorf("--quiet and --verbose cannot be used together")
+			}
 			if c.Bool("verbose") {
 				logger.SetVerbose(true)
 			}
+			logger.SetQuiet(c.Bool("quiet"))
 			return ctx, nil
 		},
 	}
@@ -104,10 +113,7 @@ func versionCommand(app *cli.Command) {
 		Usage:       "prints the version of grip",
 		Description: "prints the version of grip",
 		Action: func(context.Context, *cli.Command) error {
-			logger.Println("grip - Installing effortlessly single-executable releases from GitHub projects")
-			logger.Println("%s", version)
-			logger.Println("%s", shortBuild(build))
-			logger.Println("%s", date)
+			fmt.Printf("grip - Installing effortlessly single-executable releases from GitHub projects\n%s\n%s\n%s\n", version, shortBuild(build), date)
 			return nil
 		},
 	}

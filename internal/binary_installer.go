@@ -43,7 +43,7 @@ func storeBinary(srcPath, dir, name string, midCopy func() error) error {
 	if _, err := io.Copy(w, src); err != nil {
 		return fmt.Errorf("copy binary: %w", err)
 	}
-	fmt.Println() // new line after progress bar
+	endProgressBar()
 
 	if err := tmp.Chmod(0o755); err != nil {
 		return fmt.Errorf("set binary permissions: %w", err)

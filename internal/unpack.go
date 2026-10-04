@@ -98,7 +98,7 @@ func Unpack(archivePath, destDir string, q binaryQuery) (string, error) {
 	if err := errors.Join(fn(archivePath, root, bar), root.Close()); err != nil {
 		return "", fmt.Errorf("unpack archive: %w", err)
 	}
-	fmt.Println() // new line after progress bar
+	endProgressBar()
 
 	switch ext {
 	case ".gz", ".xz", ".bz2":

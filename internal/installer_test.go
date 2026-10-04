@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexjoedt/grip/internal/logger"
 	"github.com/ulikunitz/xz"
 )
 
@@ -1691,6 +1692,48 @@ func TestRateLimitStopsRun(t *testing.T) {
 	for name, want := range map[string]string{"a": "v2", "b": "v1", "c": "v1"} {
 		if inst, err := e.storage.Get(name); err != nil || inst.Tag != want {
 			t.Errorf("%s at %+v, %v; want %s", name, inst, err, want)
+		}
+	}
+}
+
+// TestInstallOutput swaps os.Stdout and os.Stderr, so it must not run in
+// parallel.
+func TestInstallOutput(t *testing.T) {
+	install := func() (stdout, stderr string) {
+		t.Helper()
+		e := newInstallerEnv(t)
+		var err error
+		stdout, stderr = captureOutput(t, func() {
+			err = e.installer(fakeSource{release: e.release("v1.0.0", "/ok")}).Install(context.Background(), InstallOptions{Repo: fixtureRepo})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stdout, stderr
+	}
+
+	stdout, stderr := install()
+	if stdout != "" {
+		t.Errorf("install wrote to stdout: %q", stdout)
+	}
+	if strings.ContainsAny(stderr, "\x1b\r") {
+		t.Errorf("install without a terminal wrote control sequences: %q", stderr)
+	}
+	for _, s := range []string{"Selected asset", "[WARN]", "[SUCCESS]"} {
+		if !strings.Contains(stderr, s) {
+			t.Errorf("stderr %q does not contain %q", stderr, s)
+		}
+	}
+
+	logger.SetQuiet(true)
+	t.Cleanup(func() { logger.SetQuiet(false) })
+	stdout, stderr = install()
+	if stdout != "" || !strings.Contains(stderr, "[WARN]") {
+		t.Errorf("quiet install: stdout %q, stderr %q; want only the warning", stdout, stderr)
+	}
+	for _, s := range []string{"Selected asset", "[SUCCESS]"} {
+		if strings.Contains(stderr, s) {
+			t.Errorf("quiet stderr %q contains %q", stderr, s)
 		}
 	}
 }

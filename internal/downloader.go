@@ -87,7 +87,7 @@ func Download(ctx context.Context, client *http.Client, url, destDir, filename s
 		return "", fmt.Errorf("%s truncated: got %d of %d bytes", filename, n, size)
 	}
 
-	fmt.Println() // new line after progress bar
+	endProgressBar()
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 

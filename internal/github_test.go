@@ -164,7 +164,7 @@ func TestGitHubTokenStaysOnAPI(t *testing.T) {
 	logger.SetVerbose(true)
 	t.Cleanup(func() { logger.SetVerbose(false) })
 	var err error
-	out := captureOutput(t, func() {
+	stdout, stderr := captureOutput(t, func() {
 		err = NewInstaller(e.cfg, e.storage, src, assets.Client()).Install(context.Background(), InstallOptions{Repo: fixtureRepo})
 	})
 	if err != nil {
@@ -173,6 +173,7 @@ func TestGitHubTokenStaysOnAPI(t *testing.T) {
 	if got := assetAuth.Load(); got != "" {
 		t.Errorf("asset download sent Authorization %q", got)
 	}
+	out := stdout + stderr
 	if !strings.Contains(out, "[INFO]") {
 		t.Errorf("verbose output missing: %q", out)
 	}
@@ -181,22 +182,32 @@ func TestGitHubTokenStaysOnAPI(t *testing.T) {
 	}
 }
 
-// captureOutput returns everything f writes to os.Stdout and os.Stderr.
-func captureOutput(t *testing.T, f func()) string {
+// captureOutput returns what f writes to os.Stdout and os.Stderr. It swaps
+// both, so callers must not run in parallel.
+func captureOutput(t *testing.T, f func()) (stdout, stderr string) {
 	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
+	read := func(target **os.File) func() string {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		orig := *target
+		*target = w
+		done := make(chan []byte)
+		go func() {
+			b, _ := io.ReadAll(r)
+			done <- b
+		}()
+		return func() string {
+			*target = orig
+			_ = w.Close()
+			return string(<-done)
+		}
 	}
-	stdout, stderr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = w, w
-	done := make(chan []byte)
-	go func() {
-		b, _ := io.ReadAll(r)
-		done <- b
+	endOut, endErr := read(&os.Stdout), read(&os.Stderr)
+	defer func() {
+		stdout, stderr = endOut(), endErr()
 	}()
-	defer func() { os.Stdout, os.Stderr = stdout, stderr }()
 	f()
-	_ = w.Close()
-	return string(<-done)
+	return
 }
