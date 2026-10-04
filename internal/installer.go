@@ -539,6 +539,11 @@ func (i *Installer) pkgDir(name string) string {
 	return filepath.Join(i.config.HomeDir, "pkgs", name)
 }
 
+// StoreDir returns the store directory holding every version of a package.
+func (i *Installer) StoreDir(name string) string {
+	return i.pkgDir(name)
+}
+
 // installAsset downloads the asset, writes its binary to storeDir/name and
 // switches bin/name to it. It returns the installed version without
 // InstalledAt.

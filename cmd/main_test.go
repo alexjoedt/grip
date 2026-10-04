@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -328,5 +330,65 @@ func TestExitCodes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRemoveDryRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GRIP_HOME", home)
+	state := `{"version":2,"packages":{"a":{"repo":"github.com/o/a","tag":"v1"},"b":{"repo":"github.com/o/b","tag":"v1"}}}`
+	statePath := filepath.Join(home, "grip.json")
+	if err := os.WriteFile(statePath, []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(home, "pkgs", name, "v1"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "pkgs", name, "v1", name), []byte("bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(home, "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join("..", "pkgs", name, "v1", name), filepath.Join(home, "bin", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listing := func() []string {
+		t.Helper()
+		var paths []string
+		if err := filepath.WalkDir(home, func(p string, _ fs.DirEntry, err error) error {
+			paths = append(paths, p)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return paths
+	}
+	before := listing()
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		app := newApp()
+		app.Writer = &out
+		err := app.Run(context.Background(), append([]string{"grip", "remove", "--dry-run"}, args...))
+		return out.String(), err
+	}
+
+	out, err := run("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "a: would remove link " + filepath.Join(home, "bin", "a") + ", store " + filepath.Join(home, "pkgs", "a") + " and the state entry\n"; out != want {
+		t.Errorf("dry run a = %q, want %q", out, want)
+	}
+	if out, err = run("--all"); err != nil || strings.Count(out, "would remove") != 2 || !strings.HasPrefix(out, "a:") {
+		t.Errorf("dry run --all = %q, %v", out, err)
+	}
+	if _, err := run("nope"); err == nil {
+		t.Error("dry run of unknown package succeeded")
+	}
+	if b, err := os.ReadFile(statePath); err != nil || string(b) != state || !slices.Equal(before, listing()) {
+		t.Errorf("dry run changed the home: %v", err)
 	}
 }

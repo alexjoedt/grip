@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	grip "github.com/alexjoedt/grip/internal"
@@ -30,11 +32,18 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 				Aliases: []string{"f"},
 				Usage:   "forces remove without confirmation",
 			},
+			&cli.BoolFlag{
+				Name:  "dry-run",
+				Usage: "prints what would be removed and changes nothing",
+			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			installer, storage, err := setup()
 			if err != nil {
 				return err
+			}
+			if c.Bool("dry-run") {
+				return dryRun(c, installer, storage)
 			}
 			if c.Bool("all") {
 				if !c.Bool("force") && !askForContinue() {
@@ -76,6 +85,37 @@ func Command(app *cli.Command, setup func() (*grip.Installer, *grip.Storage, err
 		},
 	}
 	app.Commands = append(app.Commands, cmd)
+}
+
+// dryRun prints the link, store directory and state entry that remove
+// would delete. It takes no lock.
+func dryRun(c *cli.Command, installer *grip.Installer, storage *grip.Storage) error {
+	var insts []*grip.Installation
+	if c.Bool("all") {
+		all, err := storage.List()
+		if err != nil {
+			return err
+		}
+		insts = all
+		slices.SortFunc(insts, func(a, b *grip.Installation) int { return strings.Compare(a.Name, b.Name) })
+	} else {
+		if c.NArg() == 0 {
+			return fmt.Errorf("please provide the name of the executable to remove")
+		}
+		inst, err := storage.Get(c.Args().First())
+		if err != nil {
+			return err
+		}
+		insts = append(insts, inst)
+	}
+	w := c.Root().Writer
+	for _, inst := range insts {
+		if _, err := fmt.Fprintf(w, "%s: would remove link %s, store %s and the state entry\n",
+			inst.Name, filepath.Join(storage.InstallDir(inst), inst.Name), installer.StoreDir(inst.Name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var errAborted = errors.New("aborted")
