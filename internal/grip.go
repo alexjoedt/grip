@@ -68,7 +68,7 @@ func (i *Installer) selfUpdate(ctx context.Context, version, exe string) error {
 			return err
 		}
 		if semver.Compare(currentVersion, latestVersion) >= 0 {
-			logger.Info("Newest version already installed")
+			logger.Println("grip %s is up to date, the latest release is %s", version, release.Tag)
 			return nil
 		}
 	}

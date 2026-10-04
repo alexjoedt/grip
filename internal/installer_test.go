@@ -1737,3 +1737,17 @@ func TestInstallOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfUpdateNotNewer(t *testing.T) {
+	ctx := context.Background()
+	for _, version := range []string{"2.0.0-rc.1", "1.2.0"} {
+		e := newInstallerEnv(t)
+		exe, old := selfExe(t)
+		if err := e.installer(fakeSource{release: e.release("v1.2.0", "/ok")}).selfUpdate(ctx, version, exe); err != nil {
+			t.Fatalf("selfUpdate from %s: %v", version, err)
+		}
+		if got, err := os.ReadFile(exe); err != nil || !bytes.Equal(got, old) || e.hits.Load() != 0 {
+			t.Errorf("selfUpdate from %s replaced the exe or downloaded %d times", version, e.hits.Load())
+		}
+	}
+}

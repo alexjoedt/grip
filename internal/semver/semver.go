@@ -1,6 +1,7 @@
 package semver
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,10 +16,12 @@ type Version struct {
 	Metadata   string
 }
 
+var semVerRegex = regexp.MustCompile(`^(\d+)(?:\.(\d+))?(?:\.(\d+))?(-[0-9A-Za-z-.]*)?(\+[0-9A-Za-z-.]*)?$`)
+
+// Parse parses a version; a leading v is ignored.
 func Parse(version string) (*Version, error) {
 	version = strings.TrimPrefix(version, "v")
 
-	semVerRegex := regexp.MustCompile(`^(\d+)(?:\.(\d+))?(?:\.(\d+))?(-[0-9A-Za-z-.]*)?(\+[0-9A-Za-z-.]*)?$`)
 	matches := semVerRegex.FindStringSubmatch(version)
 
 	if matches == nil {
@@ -74,5 +77,31 @@ func Compare(v1, v2 *Version) int {
 		return -1
 	}
 
-	return strings.Compare(v1.Prerelease, v2.Prerelease)
+	return comparePrerelease(v1.Prerelease, v2.Prerelease)
+}
+
+// comparePrerelease orders dot-separated identifiers per semver 2.0.0:
+// numeric ones numerically and below alphanumeric ones, and a shorter list
+// below a longer one with the same prefix.
+func comparePrerelease(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aErr := strconv.ParseUint(as[i], 10, 64)
+		bn, bErr := strconv.ParseUint(bs[i], 10, 64)
+		var c int
+		switch {
+		case aErr == nil && bErr == nil:
+			c = cmp.Compare(an, bn)
+		case aErr == nil:
+			c = -1
+		case bErr == nil:
+			c = 1
+		default:
+			c = strings.Compare(as[i], bs[i])
+		}
+		if c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
 }

@@ -54,3 +54,30 @@ func TestCompare(t *testing.T) {
 		}
 	}
 }
+
+func TestCompareStrings(t *testing.T) {
+	ordered := []string{
+		"1.0.0-1", "1.0.0-2", "1.0.0-10", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta",
+		"1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0-rc.2", "1.0.0-rc.10", "1.0.0",
+		"2.0.0-rc.1", "v2.0.0",
+	}
+	parse := func(s string) *Version {
+		t.Helper()
+		v, err := Parse(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for i := range ordered {
+		for j := range ordered {
+			got := Compare(parse(ordered[i]), parse(ordered[j]))
+			if (got < 0) != (i < j) || (got == 0) != (i == j) {
+				t.Errorf("Compare(%s, %s) = %d", ordered[i], ordered[j], got)
+			}
+		}
+	}
+	if Compare(parse("1.2.0"), parse("v1.2.0")) != 0 {
+		t.Error("1.2.0 != v1.2.0")
+	}
+}
