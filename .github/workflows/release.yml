@@ -41,6 +41,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # an rc and its final tag share a commit; build the tag that was pushed
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@v4
