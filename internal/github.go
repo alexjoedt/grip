@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -15,11 +16,13 @@ const githubAPI = "https://api.github.com"
 type GitHubSource struct {
 	baseURL string
 	client  *http.Client
+	token   string
 }
 
-// NewGitHubSource creates a GitHub source.
-func NewGitHubSource() *GitHubSource {
-	return &GitHubSource{baseURL: githubAPI, client: &http.Client{Timeout: 30 * time.Second}}
+// NewGitHubSource creates a GitHub source. A non-empty token is sent as a
+// bearer token with every API request.
+func NewGitHubSource(token string) *GitHubSource {
+	return &GitHubSource{baseURL: githubAPI, client: &http.Client{Timeout: 30 * time.Second}, token: token}
 }
 
 // LatestRelease fetches the latest release.
@@ -53,6 +56,9 @@ func (g *GitHubSource) release(ctx context.Context, path ...string) (*Release, e
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
 
 	resp, err := g.client.Do(req)
 	if err != nil {
@@ -65,6 +71,17 @@ func (g *GitHubSource) release(ctx context.Context, path ...string) (*Release, e
 			Message string `json:"message"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
+		switch {
+		case resp.StatusCode == http.StatusUnauthorized && g.token != "":
+			return nil, fmt.Errorf("GET %s: %s: GITHUB_TOKEN was rejected, fix or unset it", u, resp.Status)
+		case (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) &&
+			resp.Header.Get("X-RateLimit-Remaining") == "0":
+			hint := ""
+			if g.token == "" {
+				hint = ", set GITHUB_TOKEN to raise the limit"
+			}
+			return nil, fmt.Errorf("GET %s: %s: %w until %s%s", u, resp.Status, ErrRateLimited, rateLimitReset(resp.Header.Get("X-RateLimit-Reset")), hint)
+		}
 		return nil, fmt.Errorf("GET %s: %s: %s", u, resp.Status, apiErr.Message)
 	}
 
@@ -82,4 +99,13 @@ func (g *GitHubSource) release(ctx context.Context, path ...string) (*Release, e
 		})
 	}
 	return r, nil
+}
+
+// rateLimitReset formats the X-RateLimit-Reset epoch seconds as local time.
+func rateLimitReset(v string) string {
+	sec, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return "an unknown time"
+	}
+	return time.Unix(sec, 0).Format("15:04:05 MST")
 }

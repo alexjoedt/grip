@@ -1649,3 +1649,48 @@ func TestRollback(t *testing.T) {
 	e.assertInstalled(t, name, "v1.0.0")
 	e.assertStore(t, name, "v1.1.0", "v1.0.0", "v1.1.0")
 }
+
+// limitSource serves repoSource releases and fails with ErrRateLimited for
+// the repo named limit.
+type limitSource struct {
+	repoSource
+	limit string
+	calls atomic.Int64
+}
+
+func (s *limitSource) LatestRelease(ctx context.Context, r Repo) (*Release, error) {
+	s.calls.Add(1)
+	if r.Name == s.limit {
+		return nil, fmt.Errorf("GET x: 403 Forbidden: %w until 12:00:00 UTC", ErrRateLimited)
+	}
+	return s.repoSource.LatestRelease(ctx, r)
+}
+
+func TestRateLimitStopsRun(t *testing.T) {
+	e := newInstallerEnv(t)
+	ctx := context.Background()
+	for _, name := range []string{"a", "b", "c"} {
+		if err := e.storage.Save(&Installation{Name: name, Repo: "github.com/o/" + name, Version: Version{Tag: "v1"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := &limitSource{repoSource: repoSource{"a": e.release("v2", "/ok"), "c": e.release("v2", "/ok")}, limit: "b"}
+
+	got, err := e.installer(src).Outdated(ctx)
+	if !errors.Is(err, ErrRateLimited) || src.calls.Load() != 2 {
+		t.Fatalf("Outdated err = %v after %d lookups, want ErrRateLimited after 2", err, src.calls.Load())
+	}
+	if want := []OutdatedPackage{{Name: "a", Tag: "v1", Latest: "v2"}}; !slices.Equal(got, want) {
+		t.Errorf("Outdated = %+v, want %+v", got, want)
+	}
+
+	src.calls.Store(0)
+	if err := e.installer(src).UpdateMany(ctx); !errors.Is(err, ErrRateLimited) || src.calls.Load() != 2 {
+		t.Fatalf("UpdateMany err = %v after %d lookups, want ErrRateLimited after 2", err, src.calls.Load())
+	}
+	for name, want := range map[string]string{"a": "v2", "b": "v1", "c": "v1"} {
+		if inst, err := e.storage.Get(name); err != nil || inst.Tag != want {
+			t.Errorf("%s at %+v, %v; want %s", name, inst, err, want)
+		}
+	}
+}

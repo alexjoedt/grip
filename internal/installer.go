@@ -331,7 +331,8 @@ func (i *Installer) update(ctx context.Context, name, asset, bin string, require
 
 // UpdateMany updates the named packages, or every installed one when names is
 // empty, skipping pinned ones then. Each update takes the lock itself. A
-// failure is logged and the run continues; cancellation stops it.
+// failure is logged and the run continues; cancellation and the rate limit
+// stop it.
 func (i *Installer) UpdateMany(ctx context.Context, names ...string) error {
 	all := len(names) == 0
 	if all {
@@ -346,6 +347,7 @@ func (i *Installer) UpdateMany(ctx context.Context, names ...string) error {
 	}
 
 	var updated, current, pinned, failed int
+	var stopped error
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -358,6 +360,11 @@ func (i *Installer) UpdateMany(ctx context.Context, names ...string) error {
 		}
 		if err == nil {
 			err = i.Update(ctx, name, "", "")
+		}
+		if errors.Is(err, ErrRateLimited) {
+			stopped = fmt.Errorf("%s: %w", name, err)
+			failed++
+			break
 		}
 		if err != nil {
 			logger.Error("%s: %v", name, err)
@@ -373,6 +380,9 @@ func (i *Installer) UpdateMany(ctx context.Context, names ...string) error {
 	if len(names) > 1 {
 		logger.Println("%d updated, %d current, %d pinned, %d failed", updated, current, pinned, failed)
 	}
+	if stopped != nil {
+		return stopped
+	}
 	if failed > 0 {
 		return fmt.Errorf("%d of %d updates failed", failed, len(names))
 	}
@@ -387,8 +397,8 @@ type OutdatedPackage struct {
 }
 
 // Outdated looks up the latest release of every installed package, sorted by
-// name. A failed lookup is logged and the rest are still checked. It takes no
-// lock and changes nothing.
+// name. A failed lookup is logged and the rest are still checked, except at
+// the rate limit. It takes no lock and changes nothing.
 func (i *Installer) Outdated(ctx context.Context) ([]OutdatedPackage, error) {
 	insts, err := i.storage.List()
 	if err != nil {
@@ -406,6 +416,9 @@ func (i *Installer) Outdated(ctx context.Context) ([]OutdatedPackage, error) {
 			}
 			return fetchRelease(ctx, i.source, repo, "")
 		}()
+		if errors.Is(err, ErrRateLimited) {
+			return out, fmt.Errorf("%s: %w", inst.Name, err)
+		}
 		if err != nil {
 			logger.Error("%s: %v", inst.Name, err)
 			failed++

@@ -95,7 +95,7 @@ func setup() (*grip.Installer, *grip.Storage, error) {
 		},
 	}
 
-	return grip.NewInstaller(cfg, storage, grip.NewGitHubSource(), httpClient), storage, nil
+	return grip.NewInstaller(cfg, storage, grip.NewGitHubSource(os.Getenv("GITHUB_TOKEN")), httpClient), storage, nil
 }
 
 func versionCommand(app *cli.Command) {

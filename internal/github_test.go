@@ -2,10 +2,18 @@ package grip
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/alexjoedt/grip/internal/logger"
 )
 
 func newGitHubTestSource(t *testing.T, h http.HandlerFunc) *GitHubSource {
@@ -61,29 +69,134 @@ func TestGitHubSourceRelease(t *testing.T) {
 }
 
 func TestGitHubSourceErrors(t *testing.T) {
+	const token = "secret-token-zz"
+	reset := time.Unix(1_900_000_000, 0).Format("15:04:05 MST")
+	limited := map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1900000000"}
 	tests := map[string]struct {
-		status int
-		body   string
-		want   []string
+		status      int
+		header      map[string]string
+		token       string
+		rateLimited bool
+		want        []string
+		notWant     []string
 	}{
-		"not found":  {404, `{"message":"Not Found"}`, []string{"404", "Not Found"}},
-		"rate limit": {403, `{"message":"API rate limit exceeded for 1.2.3.4."}`, []string{"403", "API rate limit exceeded"}},
+		"not found":         {status: 404, want: []string{"404", "Not Found"}},
+		"forbidden":         {status: 403, header: map[string]string{"X-RateLimit-Remaining": "12"}, want: []string{"403", "Not Found"}},
+		"rejected token":    {status: 401, token: token, want: []string{"401", "GITHUB_TOKEN was rejected"}},
+		"rate limit":        {status: 403, header: limited, rateLimited: true, want: []string{"403", reset, "set GITHUB_TOKEN"}},
+		"secondary limit":   {status: 429, header: limited, token: token, rateLimited: true, want: []string{"429", reset}, notWant: []string{"set GITHUB_TOKEN"}},
+		"limit, bad header": {status: 403, header: map[string]string{"X-RateLimit-Remaining": "0"}, rateLimited: true, want: []string{"unknown time"}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int64
 			src := newGitHubTestSource(t, func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				for k, v := range tt.header {
+					w.Header().Set(k, v)
+				}
 				w.WriteHeader(tt.status)
-				_, _ = w.Write([]byte(tt.body))
+				_, _ = w.Write([]byte(`{"message":"Not Found"}`))
 			})
+			src.token = tt.token
 			_, err := src.LatestRelease(context.Background(), Repo{Owner: "o", Name: "r"})
 			if err == nil {
 				t.Fatal("expected error")
+			}
+			if errors.Is(err, ErrRateLimited) != tt.rateLimited {
+				t.Errorf("errors.Is(%q, ErrRateLimited) = %v, want %v", err, !tt.rateLimited, tt.rateLimited)
 			}
 			for _, s := range tt.want {
 				if !strings.Contains(err.Error(), s) {
 					t.Errorf("error %q does not contain %q", err, s)
 				}
 			}
+			for _, s := range append(tt.notWant, token) {
+				if strings.Contains(err.Error(), s) {
+					t.Errorf("error %q contains %q", err, s)
+				}
+			}
+			if calls.Load() != 1 {
+				t.Errorf("sent %d requests, want 1", calls.Load())
+			}
 		})
 	}
+}
+
+func TestGitHubSourceToken(t *testing.T) {
+	for _, token := range []string{"", "secret-token-zz"} {
+		src := newGitHubTestSource(t, func(w http.ResponseWriter, r *http.Request) {
+			want := ""
+			if token != "" {
+				want = "Bearer " + token
+			}
+			if got := r.Header.Get("Authorization"); got != want {
+				t.Errorf("token %q: Authorization = %q, want %q", token, got, want)
+			}
+			_, _ = w.Write([]byte(`{"tag_name":"v1"}`))
+		})
+		src.token = token
+		if _, err := src.LatestRelease(context.Background(), Repo{Owner: "o", Name: "r"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestGitHubTokenStaysOnAPI installs through the API with a token and verbose
+// output, and checks that neither the asset download nor the output carry it.
+// It swaps os.Stdout and os.Stderr, so it must not run in parallel.
+func TestGitHubTokenStaysOnAPI(t *testing.T) {
+	const token = "secret-token-zz"
+	e := newInstallerEnv(t)
+	var assetAuth atomic.Value
+	assetAuth.Store("")
+	assets := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assetAuth.Store(r.Header.Get("Authorization"))
+		_, _ = w.Write(createTestTarGz(t))
+	}))
+	t.Cleanup(assets.Close)
+	src := newGitHubTestSource(t, func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":"v1.0.0","assets":[{"name":"tool_%s_%s.tar.gz","browser_download_url":%q}]}`,
+			e.cfg.OS, e.cfg.Arch, assets.URL+"/tool.tar.gz")
+	})
+	src.token = token
+
+	logger.SetVerbose(true)
+	t.Cleanup(func() { logger.SetVerbose(false) })
+	var err error
+	out := captureOutput(t, func() {
+		err = NewInstaller(e.cfg, e.storage, src, assets.Client()).Install(context.Background(), InstallOptions{Repo: fixtureRepo})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := assetAuth.Load(); got != "" {
+		t.Errorf("asset download sent Authorization %q", got)
+	}
+	if !strings.Contains(out, "[INFO]") {
+		t.Errorf("verbose output missing: %q", out)
+	}
+	if strings.Contains(out, token) {
+		t.Errorf("output contains the token: %q", out)
+	}
+}
+
+// captureOutput returns everything f writes to os.Stdout and os.Stderr.
+func captureOutput(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = w, w
+	done := make(chan []byte)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- b
+	}()
+	defer func() { os.Stdout, os.Stderr = stdout, stderr }()
+	f()
+	_ = w.Close()
+	return string(<-done)
 }
