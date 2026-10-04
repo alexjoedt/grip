@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/schollz/progressbar/v3 v3.19.1
 	github.com/stretchr/testify v1.12.1
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz v0.5.17
 	github.com/urfave/cli/v3 v3.14.0
 )
 
