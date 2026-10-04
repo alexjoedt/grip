@@ -44,6 +44,9 @@ func newApp() *cli.Command {
 		Name:    "grip",
 		Usage:   "grip [flags] <command>",
 		Version: version,
+		// The generated completion command is hidden by default.
+		EnableShellCompletion:           true,
+		ConfigureShellCompletionCommand: func(c *cli.Command) { c.Hidden = false },
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "verbose",

@@ -209,3 +209,26 @@ func TestJSONOutput(t *testing.T) {
 		check("verify", r, "status")
 	}
 }
+
+func TestCompletion(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	t.Setenv("GRIP_HOME", home)
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		var out bytes.Buffer
+		app := newApp()
+		app.Writer = &out
+		if err := app.Run(context.Background(), []string{"grip", "completion", shell}); err != nil || out.Len() == 0 {
+			t.Errorf("completion %s: %d bytes, %v", shell, out.Len(), err)
+		}
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Errorf("completion created the grip home: %v", err)
+	}
+
+	var help bytes.Buffer
+	app := newApp()
+	app.Writer = &help
+	if err := app.Run(context.Background(), []string{"grip", "--help"}); err != nil || !strings.Contains(help.String(), "completion") {
+		t.Errorf("--help does not list completion: %v\n%s", err, help.String())
+	}
+}
